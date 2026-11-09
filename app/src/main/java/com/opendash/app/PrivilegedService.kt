@@ -116,7 +116,7 @@ class PrivilegedService() : IPrivileged.Stub() {
         return try {
             val ids = source.getMethod("getPhysicalDisplayIds").invoke(null) as LongArray
             val tokenOf = source.getMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
-            ids.mapNotNull { tokenOf.invoke(null, it) as IBinder? }
+            ids.toList().mapNotNull { tokenOf.invoke(null, it) as IBinder? }
         } catch (e: NoSuchMethodException) {
             listOfNotNull(sc.getMethod("getInternalDisplayToken").invoke(null) as IBinder?)
         }
