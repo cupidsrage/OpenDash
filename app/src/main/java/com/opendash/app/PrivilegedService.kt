@@ -7,6 +7,7 @@ import android.content.ContextWrapper
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Build
+import android.os.IBinder
 import android.os.SystemClock
 import android.view.InputDevice
 import android.view.InputEvent
@@ -35,6 +36,7 @@ class PrivilegedService() : IPrivileged.Stub() {
     private var display: VirtualDisplay? = null
 
     override fun destroy() {
+        setPhoneScreen(true)
         releaseDisplay()
         exitProcess(0)
     }
@@ -96,6 +98,49 @@ class PrivilegedService() : IPrivileged.Stub() {
         return inject(down, displayId) && inject(up, displayId)
     }
 
+    override fun setPhoneScreen(on: Boolean): Boolean = try {
+        val mode = if (on) POWER_MODE_NORMAL else POWER_MODE_OFF
+        val sc = Class.forName("android.view.SurfaceControl")
+        val setMode = sc.getMethod("setDisplayPowerMode", IBinder::class.java, Int::class.javaPrimitiveType)
+        val tokens = physicalDisplayTokens(sc)
+        tokens.forEach { setMode.invoke(null, it, mode) }
+        tokens.isNotEmpty()
+    } catch (e: Throwable) {
+        false
+    }
+
+    /** Tokens for the phone's built-in screen(s). Android 14 moved these into services.jar. */
+    @SuppressLint("PrivateApi", "DiscouragedPrivateApi")
+    private fun physicalDisplayTokens(sc: Class<*>): List<IBinder> {
+        val source: Class<*> = if (Build.VERSION.SDK_INT >= 34) displayControl else sc
+        return try {
+            val ids = source.getMethod("getPhysicalDisplayIds").invoke(null) as LongArray
+            val tokenOf = source.getMethod("getPhysicalDisplayToken", Long::class.javaPrimitiveType)
+            ids.mapNotNull { tokenOf.invoke(null, it) as IBinder? }
+        } catch (e: NoSuchMethodException) {
+            listOfNotNull(sc.getMethod("getInternalDisplayToken").invoke(null) as IBinder?)
+        }
+    }
+
+    private val displayControl: Class<*> by lazy {
+        val factory = Class.forName("com.android.internal.os.ClassLoaderFactory")
+        val create = factory.getDeclaredMethod(
+            "createClassLoader",
+            String::class.java, String::class.java, String::class.java,
+            ClassLoader::class.java, Int::class.javaPrimitiveType,
+            Boolean::class.javaPrimitiveType, String::class.java
+        )
+        val loader = create.invoke(
+            null, "/system/framework/services.jar", null, null,
+            ClassLoader.getSystemClassLoader(), 0, true, null
+        ) as ClassLoader
+        val cls = loader.loadClass("com.android.server.display.DisplayControl")
+        val loadLibrary = Runtime::class.java.getDeclaredMethod("loadLibrary0", Class::class.java, String::class.java)
+        loadLibrary.isAccessible = true
+        loadLibrary.invoke(Runtime.getRuntime(), cls, "android_servers")
+        cls
+    }
+
     // ------------------------------------------------------------ hidden-API plumbing
 
     private val injector: Pair<Any, java.lang.reflect.Method> by lazy {
@@ -155,6 +200,8 @@ class PrivilegedService() : IPrivileged.Stub() {
     companion object {
         private const val SHELL_PACKAGE = "com.android.shell"
         private const val SHELL_UID = 2000
+        private const val POWER_MODE_OFF = 0
+        private const val POWER_MODE_NORMAL = 2
 
         // DisplayManager.VIRTUAL_DISPLAY_FLAG_* (several are hidden)
         private const val PUBLIC = 1 shl 0

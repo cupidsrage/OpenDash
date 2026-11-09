@@ -19,4 +19,8 @@ interface IPrivileged {
 
     boolean injectMotion(in MotionEvent event, int displayId) = 6;
     boolean pressBack(int displayId) = 7;
+
+    // Turns the phone's own display panel off/on while the system stays awake,
+    // so apps on OpenDash's screen keep running (like scrcpy --turn-screen-off).
+    boolean setPhoneScreen(boolean on) = 8;
 }

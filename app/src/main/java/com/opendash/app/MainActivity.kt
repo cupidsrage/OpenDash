@@ -136,6 +136,9 @@ class MainActivity : AppCompatActivity() {
         shizukuStep()
 
         header("Options")
+        toggle("Turn the phone screen off while apps run on OpenDash's screen (Shizuku)", Prefs.phoneScreenOff(this)) {
+            Prefs.setPhoneScreenOff(this, it)
+        }
         toggle("Hide the car menu (swipe in from the left edge to open)", Prefs.hideRail(this)) {
             Prefs.setHideRail(this, it)
         }

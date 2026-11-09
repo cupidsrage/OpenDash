@@ -258,6 +258,7 @@ class CarActivity : AppCompatActivity() {
         if (onCarDisplay) {
             voice.release()
             ProjectionService.instance?.detachMirror()
+            releasePhone()
             if (virtualDisplayId >= 0) {
                 try { ShizukuBridge.service?.releaseDisplay() } catch (_: Exception) {}
                 virtualDisplayId = -1
@@ -347,8 +348,12 @@ class CarActivity : AppCompatActivity() {
      */
     override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
         if (!onCarDisplay || !railHides || !::rail.isInitialized) return super.dispatchTouchEvent(ev)
-        val left = rootView.paddingLeft
+        // Where things really are in this window (Android Auto may offset our area).
+        val rootLoc = IntArray(2)
+        rootView.getLocationInWindow(rootLoc)
+        val left = rootLoc[0] + rootView.paddingLeft
         val railW = rail.width.toFloat()
+        val railRight = left + railW
 
         if (swallowUntilUp) {
             if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -367,7 +372,7 @@ class CarActivity : AppCompatActivity() {
                     railHandle.visibility = View.INVISIBLE
                     return true
                 }
-                if (railOpen && ev.x > left + railW) {
+                if (railOpen && ev.x > railRight) {
                     setRail(false, animate = true)
                     swallowUntilUp = true
                     return true
@@ -500,15 +505,65 @@ class CarActivity : AppCompatActivity() {
 
     private fun startOnVirtual(svc: IPrivileged, component: String) {
         val displayId = virtualDisplayId
+        holdPhoneAwake(true)
         Thread {
             val ok = try { svc.startApp(component, displayId) } catch (_: Exception) { false }
-            if (!ok) handler.post { showBubble("Couldn't open that app on OpenDash's screen") }
+            handler.post {
+                if (!ok) showBubble("Couldn't open that app on OpenDash's screen")
+                else setPhonePanel(off = true)
+            }
         }.start()
+    }
+
+    // If the phone really goes to sleep, apps on OpenDash's screen pause. So while
+    // they run, keep the phone awake and switch only its display panel off instead.
+    private var wakeLock: android.os.PowerManager.WakeLock? = null
+    private var panelOff = false
+
+    @Suppress("DEPRECATION")
+    private fun holdPhoneAwake(hold: Boolean) {
+        if (hold && wakeLock == null) {
+            val pm = getSystemService(android.os.PowerManager::class.java)
+            wakeLock = pm.newWakeLock(
+                android.os.PowerManager.SCREEN_DIM_WAKE_LOCK or android.os.PowerManager.ACQUIRE_CAUSES_WAKEUP,
+                "OpenDash:car"
+            ).apply { setReferenceCounted(false); acquire() }
+        } else if (!hold) {
+            wakeLock?.let { if (it.isHeld) it.release() }
+            wakeLock = null
+        }
+    }
+
+    private fun setPhonePanel(off: Boolean) {
+        if (off && !Prefs.phoneScreenOff(this)) return
+        if (off == panelOff) return
+        val svc = ShizukuBridge.service ?: return
+        Thread {
+            // Give the wake-up a moment to finish before switching the panel off.
+            if (off) Thread.sleep(800)
+            val ok = try { svc.setPhoneScreen(!off) } catch (_: Exception) { false }
+            handler.post {
+                panelOff = off && ok
+                if (off && !ok) showBubble("Couldn't turn the phone screen off. Apps still run with it on")
+            }
+        }.start()
+    }
+
+    /** Back to normal: panel on, phone allowed to sleep. */
+    private fun releasePhone() {
+        if (panelOff) {
+            val svc = ShizukuBridge.service
+            panelOff = false
+            if (svc != null) Thread { try { svc.setPhoneScreen(true) } catch (_: Exception) {} }.start()
+        }
+        holdPhoneAwake(false)
     }
 
     private fun switchSource(new: Source) {
         if (new == source) return
         if (source == Source.PHONE) ProjectionService.instance?.detachMirror()
+        // Mirroring needs the real phone screen on.
+        if (new == Source.PHONE) releasePhone()
         source = new
         updateMirrorHint()
         fitMirror()
@@ -518,6 +573,8 @@ class CarActivity : AppCompatActivity() {
     private fun onShizukuChanged() {
         if (ShizukuBridge.service == null && virtualDisplayId >= 0) {
             // Shizuku stopped (e.g. phone restarted): the private screen is gone.
+            panelOff = false
+            holdPhoneAwake(false)
             virtualDisplayId = -1
             virtualSize = null
             if (source == Source.VIRTUAL) showBubble("Shizuku stopped. Open Shizuku on your phone to restart it")

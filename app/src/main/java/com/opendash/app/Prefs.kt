@@ -18,6 +18,10 @@ object Prefs {
     fun hideRail(c: Context) = sp(c).getBoolean("hide_rail", true)
     fun setHideRail(c: Context, v: Boolean) = sp(c).edit().putBoolean("hide_rail", v).apply()
 
+    /** Switch the phone's panel off while apps run on OpenDash's Shizuku screen. */
+    fun phoneScreenOff(c: Context) = sp(c).getBoolean("phone_screen_off", true)
+    fun setPhoneScreenOff(c: Context, v: Boolean) = sp(c).edit().putBoolean("phone_screen_off", v).apply()
+
     /** Open apps on the car display instead of mirroring the phone. */
     fun directMode(c: Context) = sp(c).getBoolean("direct", true)
     fun setDirectMode(c: Context, v: Boolean) = sp(c).edit().putBoolean("direct", v).apply()
