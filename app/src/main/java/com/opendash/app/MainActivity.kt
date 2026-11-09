@@ -133,6 +133,8 @@ class MainActivity : AppCompatActivity() {
             startActivity(Intent(Settings.ACTION_SECURITY_SETTINGS))
         }
 
+        shizukuStep()
+
         header("Options")
         toggle("Hide the car menu (swipe in from the left edge to open)", Prefs.hideRail(this)) {
             Prefs.setHideRail(this, it)
@@ -164,6 +166,59 @@ class MainActivity : AppCompatActivity() {
         button("Check for updates now") { checkForUpdates(interactive = true) }
 
         text("On the car: Home shows recent apps, the grid button shows every app, the phone button shows your phone's screen. The blue mic takes “open Spotify”, “navigate to Walmart”, or “play some Zach Bryan”.", 13f)
+    }
+
+    /**
+     * Shizuku lets OpenDash run apps on its own hidden screen that shows on the car,
+     * so the phone screen can stay off and there's no screen-share prompt.
+     */
+    private fun shizukuStep() {
+        val state = ShizukuBridge.state(this)
+        val desc = "Optional but recommended. Lets OpenDash run apps on its own hidden screen for the car, " +
+            "so the phone can stay locked with the screen off and there's no “Start now” prompt. "
+        when (state) {
+            ShizukuBridge.State.READY -> step("7. Shizuku", "Connected. Apps that can't open directly in Android Auto run on OpenDash's own screen.", true) {}
+            ShizukuBridge.State.CONNECTING -> step("7. Shizuku", "Connecting…", null, buttonLabel = "Refresh") { render() }
+            ShizukuBridge.State.NOT_INSTALLED -> step(
+                "7. Install Shizuku",
+                desc + "Install Shizuku from the Play Store, then come back here.",
+                false, buttonLabel = "Get Shizuku"
+            ) {
+                try {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("market://details?id=moe.shizuku.privileged.api")))
+                } catch (_: Exception) {
+                    startActivity(Intent(Intent.ACTION_VIEW, Uri.parse("https://play.google.com/store/apps/details?id=moe.shizuku.privileged.api")))
+                }
+            }
+            ShizukuBridge.State.NOT_RUNNING -> step(
+                "7. Start Shizuku",
+                desc + "Turn on Developer options (Settings → About phone → Software information → tap Build number 7 times). " +
+                    "Then open Shizuku and tap Start under “Start via Wireless debugging” and follow its pairing steps. " +
+                    "After a phone restart, open Shizuku and tap Start again (needs Wi-Fi).",
+                false, buttonLabel = "Open Shizuku"
+            ) {
+                if (!ShizukuBridge.openShizukuApp(this)) render()
+            }
+            ShizukuBridge.State.NEEDS_PERMISSION -> step(
+                "7. Allow OpenDash in Shizuku",
+                "Shizuku is running. Tap Allow so OpenDash can use it.",
+                false, buttonLabel = "Allow"
+            ) {
+                ShizukuBridge.requestPermission()
+            }
+        }
+    }
+
+    private val shizukuListener: () -> Unit = { if (!isFinishing) render() }
+
+    override fun onStart() {
+        super.onStart()
+        ShizukuBridge.addListener(shizukuListener)
+    }
+
+    override fun onStop() {
+        ShizukuBridge.removeListener(shizukuListener)
+        super.onStop()
     }
 
     // ---------------------------------------------------------------- tiny view helpers

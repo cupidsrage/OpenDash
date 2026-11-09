@@ -29,6 +29,22 @@ sources on, which is why OpenDash doesn't use that library.
 **Option B: Android Studio**
 Open this folder, let Gradle sync, then *Build → Build APK(s)*.
 
+## How apps open on the car
+
+1. **Directly in Android Auto**: the app runs on the car display itself.
+2. **OpenDash's own screen (Shizuku)**: for apps Android Auto refuses. OpenDash creates a
+   hidden, always-unlocked screen sized to the car display and runs the app there, with live
+   touch. The phone can stay locked with its screen off, and there's no screen-share prompt.
+3. **Phone mirroring**: last resort if Shizuku isn't running. Needs the phone screen on.
+
+Long-press the phone button in the car menu to see the phone's own screen instead.
+
+### Setting up Shizuku
+Install [Shizuku](https://play.google.com/store/apps/details?id=moe.shizuku.privileged.api),
+turn on Developer options, then in Shizuku tap **Start** under *Start via Wireless debugging*
+and follow the pairing steps. Open OpenDash and tap **Allow** when asked. After a phone restart,
+open Shizuku and tap Start again (needs Wi-Fi).
+
 ## Automatic updates
 
 Every push to `main` builds a new APK and publishes it as a GitHub release (`v<build number>`).

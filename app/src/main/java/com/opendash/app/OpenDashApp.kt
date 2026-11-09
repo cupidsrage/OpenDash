@@ -6,5 +6,6 @@ class OpenDashApp : Application() {
     override fun onCreate() {
         super.onCreate()
         UpdateWorker.schedule(this)
+        ShizukuBridge.init(this)
     }
 }

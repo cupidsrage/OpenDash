@@ -72,6 +72,15 @@ class CarActivity : AppCompatActivity() {
     private var mirrorSurface: Surface? = null
     private var onCarDisplay = false
 
+    /** What the "screen" page shows: the phone mirrored, or OpenDash's own Shizuku screen. */
+    enum class Source { NONE, PHONE, VIRTUAL }
+
+    private var source = Source.NONE
+    private var virtualDisplayId = -1
+    private var virtualSize: Pair<Int, Int>? = null
+    private var pendingVirtualComponent: String? = null
+    private val shizukuListener: () -> Unit = { handler.post { onShizukuChanged() } }
+
     private val projectionListener: () -> Unit = { handler.post { onProjectionChanged() } }
     private val packageListener: (String) -> Unit = { handler.post { updateDrivingBlock() } }
 
@@ -126,7 +135,14 @@ class CarActivity : AppCompatActivity() {
         content = findViewById(R.id.content)
         railHandle.setOnClickListener { setRail(true, animate = true) }
         rail.post { applyRailMode() }
-        mirrorHint.setOnClickListener { ProjectionService.requestStart(this) }
+        mirrorHint.setOnClickListener { if (source != Source.VIRTUAL) ProjectionService.requestStart(this) }
+        btnScreen.setOnLongClickListener {
+            // Long-press: show the phone's own screen instead of OpenDash's screen.
+            switchSource(Source.PHONE)
+            showPage(Page.MIRROR)
+            closeRailSoon()
+            true
+        }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = goBack()
@@ -151,11 +167,14 @@ class CarActivity : AppCompatActivity() {
         }
 
         mirrorView.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
-            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) = attachMirror(st, w, h)
-            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = attachMirror(st, w, h)
+            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) = attachSurface(st, w, h)
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = attachSurface(st, w, h)
             override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                 ProjectionService.instance?.detachMirror()
+                if (virtualDisplayId >= 0) {
+                    try { ShizukuBridge.service?.setSurface(null) } catch (_: Exception) {}
+                }
                 mirrorSurface?.release()
                 mirrorSurface = null
                 return true
@@ -193,8 +212,8 @@ class CarActivity : AppCompatActivity() {
         if (SystemClock.uptimeMillis() - pendingDirectAt < 4000) {
             // We came straight back: Android Auto closed the app, so it only works mirrored.
             Prefs.addMirrorOnly(this, pkg)
-            showBubble("That app can't run on the car screen directly. Showing your phone instead")
-            if (apps.launch(pkg)) showPage(Page.MIRROR)
+            showBubble("Android Auto won't run that app directly, so it's opening another way")
+            launchFallback(pkg)
         }
     }
 
@@ -218,6 +237,7 @@ class CarActivity : AppCompatActivity() {
         UpdateManager.carConnected = true
         guard.start()
         ProjectionService.addListener(projectionListener)
+        ShizukuBridge.addListener(shizukuListener)
         TouchInjectorService.packageListeners.add(packageListener)
         tick()
         onProjectionChanged()
@@ -228,6 +248,7 @@ class CarActivity : AppCompatActivity() {
             handler.removeCallbacksAndMessages(null)
             guard.stop()
             ProjectionService.removeListener(projectionListener)
+            ShizukuBridge.removeListener(shizukuListener)
             TouchInjectorService.packageListeners.remove(packageListener)
         }
         super.onStop()
@@ -237,6 +258,10 @@ class CarActivity : AppCompatActivity() {
         if (onCarDisplay) {
             voice.release()
             ProjectionService.instance?.detachMirror()
+            if (virtualDisplayId >= 0) {
+                try { ShizukuBridge.service?.releaseDisplay() } catch (_: Exception) {}
+                virtualDisplayId = -1
+            }
             mirrorSurface?.release()
             mirrorSurface = null
             if (isFinishing || !isChangingConfigurations) {
@@ -394,7 +419,8 @@ class CarActivity : AppCompatActivity() {
             Page.HOME -> refreshRecents()
             Page.APPS -> pageApps.scrollToPosition(0)
             Page.MIRROR -> {
-                ProjectionService.requestStart(this)
+                if (source == Source.NONE) source = Source.PHONE
+                if (source == Source.PHONE) ProjectionService.requestStart(this)
                 handler.post { fitMirror() }
             }
         }
@@ -424,9 +450,11 @@ class CarActivity : AppCompatActivity() {
             else -> ""
         }
         homeStatus.visibility = if (homeStatus.text.isNullOrEmpty()) View.GONE else View.VISIBLE
-        mirrorHint.visibility = if (active) View.GONE else View.VISIBLE
+        updateMirrorHint()
         fitMirror()
-        if (active) mirrorView.surfaceTexture?.let { attachMirror(it, mirrorView.width, mirrorView.height) }
+        if (active && source != Source.VIRTUAL) {
+            mirrorView.surfaceTexture?.let { attachMirror(it, mirrorView.width, mirrorView.height) }
+        }
     }
 
     // ---------------------------------------------------------------- launching
@@ -449,7 +477,62 @@ class CarActivity : AppCompatActivity() {
             }
             Prefs.addMirrorOnly(this, pkg)
         }
+        launchFallback(pkg)
+    }
+
+    /** Shizuku screen if available (phone can stay off), else mirror the phone. */
+    private fun launchFallback(pkg: String) {
+        if (launchVirtual(pkg)) return
+        switchSource(Source.PHONE)
         if (apps.launch(pkg)) showPage(Page.MIRROR) else showBubble("Couldn't open that app")
+    }
+
+    private fun launchVirtual(pkg: String): Boolean {
+        val svc = ShizukuBridge.service ?: return false
+        val component = packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
+            ?: return false
+        Prefs.addRecent(this, pkg)
+        switchSource(Source.VIRTUAL)
+        if (virtualDisplayId >= 0) startOnVirtual(svc, component) else pendingVirtualComponent = component
+        showPage(Page.MIRROR)
+        return true
+    }
+
+    private fun startOnVirtual(svc: IPrivileged, component: String) {
+        val displayId = virtualDisplayId
+        Thread {
+            val ok = try { svc.startApp(component, displayId) } catch (_: Exception) { false }
+            if (!ok) handler.post { showBubble("Couldn't open that app on OpenDash's screen") }
+        }.start()
+    }
+
+    private fun switchSource(new: Source) {
+        if (new == source) return
+        if (source == Source.PHONE) ProjectionService.instance?.detachMirror()
+        source = new
+        updateMirrorHint()
+        fitMirror()
+        mirrorView.surfaceTexture?.let { attachSurface(it, mirrorView.width, mirrorView.height) }
+    }
+
+    private fun onShizukuChanged() {
+        if (ShizukuBridge.service == null && virtualDisplayId >= 0) {
+            // Shizuku stopped (e.g. phone restarted): the private screen is gone.
+            virtualDisplayId = -1
+            virtualSize = null
+            if (source == Source.VIRTUAL) showBubble("Shizuku stopped. Open Shizuku on your phone to restart it")
+        }
+        updateMirrorHint()
+    }
+
+    private fun updateMirrorHint() {
+        if (source == Source.VIRTUAL) {
+            mirrorHint.text = if (ShizukuBridge.service == null) "Shizuku isn't running on your phone" else "Starting…"
+            mirrorHint.visibility = if (virtualDisplayId >= 0) View.GONE else View.VISIBLE
+        } else {
+            mirrorHint.text = "Tap here, then “Start now” on your phone to show it here"
+            mirrorHint.visibility = if (ProjectionService.isActive) View.GONE else View.VISIBLE
+        }
     }
 
     private fun launchOnCar(intent: Intent): Boolean = try {
@@ -469,6 +552,14 @@ class CarActivity : AppCompatActivity() {
     }
 
     private fun goBack() {
+        if (page == Page.MIRROR && source == Source.VIRTUAL && virtualDisplayId >= 0) {
+            val svc = ShizukuBridge.service
+            val id = virtualDisplayId
+            if (svc != null) {
+                Thread { try { svc.pressBack(id) } catch (_: Exception) {} }.start()
+                return
+            }
+        }
         if (page == Page.MIRROR && TouchInjectorService.instance?.back() == true) return
         if (page != Page.HOME) showPage(Page.HOME)
     }
@@ -524,6 +615,16 @@ class CarActivity : AppCompatActivity() {
 
     /** Size the mirror to the phone's aspect ratio, letterboxed in the content area. */
     private fun fitMirror() {
+        if (source == Source.VIRTUAL) {
+            // OpenDash's own screen is created at exactly this size: no letterboxing.
+            val lp = mirrorView.layoutParams as FrameLayout.LayoutParams
+            if (lp.width != FrameLayout.LayoutParams.MATCH_PARENT || lp.height != FrameLayout.LayoutParams.MATCH_PARENT) {
+                lp.width = FrameLayout.LayoutParams.MATCH_PARENT
+                lp.height = FrameLayout.LayoutParams.MATCH_PARENT
+                mirrorView.layoutParams = lp
+            }
+            return
+        }
         val aw = pageMirror.width
         val ah = pageMirror.height
         if (aw <= 0 || ah <= 0) return
@@ -537,6 +638,49 @@ class CarActivity : AppCompatActivity() {
             lp.height = h
             lp.gravity = Gravity.CENTER
             mirrorView.layoutParams = lp
+        }
+    }
+
+    private fun attachSurface(st: SurfaceTexture, w: Int, h: Int) {
+        if (source == Source.VIRTUAL) attachVirtual(st, w, h) else attachMirror(st, w, h)
+    }
+
+    /** Point OpenDash's Shizuku screen at the car-screen surface (creating it the first time). */
+    private fun attachVirtual(st: SurfaceTexture, w: Int, h: Int) {
+        val svc = ShizukuBridge.service ?: return
+        if (w <= 0 || h <= 0) return
+        st.setDefaultBufferSize(w, h)
+        val old = mirrorSurface
+        val s = Surface(st)
+        mirrorSurface = s
+        val dpi = resources.displayMetrics.densityDpi
+        try {
+            if (virtualDisplayId < 0) {
+                virtualDisplayId = svc.createDisplay(s, w, h, dpi)
+                virtualSize = w to h
+            } else {
+                if (virtualSize != (w to h)) {
+                    svc.resizeDisplay(w, h, dpi)
+                    virtualSize = w to h
+                }
+                svc.setSurface(s)
+            }
+        } catch (e: Exception) {
+            virtualDisplayId = -1
+        }
+        old?.release()
+        if (virtualDisplayId < 0) {
+            showBubble("OpenDash's screen couldn't start. Using your phone screen instead")
+            val comp = pendingVirtualComponent
+            pendingVirtualComponent = null
+            switchSource(Source.PHONE)
+            comp?.substringBefore('/')?.let { if (apps.launch(it)) ProjectionService.requestStart(this) }
+            return
+        }
+        updateMirrorHint()
+        pendingVirtualComponent?.let { comp ->
+            pendingVirtualComponent = null
+            startOnVirtual(svc, comp)
         }
     }
 
@@ -575,6 +719,16 @@ class CarActivity : AppCompatActivity() {
 
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouch(v: View, e: MotionEvent): Boolean {
+            if (source == Source.VIRTUAL) {
+                // OpenDash's own screen: pass every touch through live, 1:1.
+                val svc = ShizukuBridge.service
+                if (svc != null && virtualDisplayId >= 0 && !isBlocked) {
+                    val ev = MotionEvent.obtain(e)
+                    try { svc.injectMotion(ev, virtualDisplayId) } catch (_: Exception) {}
+                    ev.recycle()
+                }
+                return true
+            }
             if (!ProjectionService.isActive || isBlocked) return true
             val phone = phoneScreenSize(this@CarActivity)
             val sx = phone.x / v.width.toFloat()

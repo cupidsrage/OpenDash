@@ -43,6 +43,7 @@ android {
 
     buildFeatures {
         buildConfig = true
+        aidl = true
     }
 
     compileOptions {
@@ -61,4 +62,6 @@ dependencies {
     implementation("androidx.recyclerview:recyclerview:1.3.2")
     implementation("com.google.android.material:material:1.12.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("dev.rikka.shizuku:api:13.1.5")
+    implementation("dev.rikka.shizuku:provider:13.1.5")
 }
