@@ -1,79 +1,14 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@drawable/car_bg_gradient"
-    android:orientation="horizontal">
-
-    <!-- Left rail -->
-    <LinearLayout
-        android:id="@+id/rail"
-        android:layout_width="76dp"
-        android:layout_height="match_parent"
-        android:background="@drawable/rail_bg"
-        android:gravity="center_horizontal"
-        android:orientation="vertical"
-        android:paddingTop="14dp"
-        android:paddingBottom="14dp">
-
-        <TextView
-            android:id="@+id/railClock"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginBottom="10dp"
-            android:fontFamily="sans-serif-medium"
-            android:textColor="@color/car_text"
-            android:textSize="16sp" />
-
-        <ImageButton
-            android:id="@+id/btnHome"
-            style="@style/RailButton"
-            android:contentDescription="Home"
-            android:src="@drawable/ic_home" />
-
-        <ImageButton
-            android:id="@+id/btnApps"
-            style="@style/RailButton"
-            android:contentDescription="All apps"
-            android:src="@drawable/ic_apps" />
-
-        <ImageButton
-            android:id="@+id/btnScreen"
-            style="@style/RailButton"
-            android:contentDescription="Phone screen"
-            android:src="@drawable/ic_phone_screen" />
-
-        <View
-            android:layout_width="1dp"
-            android:layout_height="0dp"
-            android:layout_weight="1" />
-
-        <ImageButton
-            android:id="@+id/btnBack"
-            style="@style/RailButton"
-            android:layout_marginBottom="10dp"
-            android:contentDescription="Back"
-            android:src="@drawable/ic_back" />
-
-        <ImageButton
-            android:id="@+id/btnMic"
-            android:layout_width="56dp"
-            android:layout_height="56dp"
-            android:background="@drawable/mic_button_bg"
-            android:contentDescription="Voice"
-            android:elevation="4dp"
-            android:padding="15dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_mic"
-            android:tint="#0B1A33" />
-    </LinearLayout>
+    android:background="@drawable/car_bg_gradient">
 
     <FrameLayout
         android:id="@+id/content"
-        android:layout_width="0dp"
-        android:layout_height="match_parent"
-        android:layout_weight="1">
+        android:layout_width="match_parent"
+        android:layout_height="match_parent">
 
         <!-- HOME: info card on the left, app tiles on the right -->
         <LinearLayout
@@ -246,4 +181,86 @@
             android:textSize="17sp"
             android:visibility="gone" />
     </FrameLayout>
-</LinearLayout>
+
+    <!-- Slide-out side menu (hidden until you swipe from the left edge) -->
+    <LinearLayout
+        android:id="@+id/rail"
+        android:layout_width="76dp"
+        android:layout_height="match_parent"
+        android:layout_gravity="start"
+        android:background="@drawable/rail_bg"
+        android:elevation="10dp"
+        android:gravity="center_horizontal"
+        android:orientation="vertical"
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
+
+        <TextView
+            android:id="@+id/railClock"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginBottom="10dp"
+            android:fontFamily="sans-serif-medium"
+            android:textColor="@color/car_text"
+            android:textSize="16sp" />
+
+        <ImageButton
+            android:id="@+id/btnHome"
+            style="@style/RailButton"
+            android:contentDescription="Home"
+            android:src="@drawable/ic_home" />
+
+        <ImageButton
+            android:id="@+id/btnApps"
+            style="@style/RailButton"
+            android:contentDescription="All apps"
+            android:src="@drawable/ic_apps" />
+
+        <ImageButton
+            android:id="@+id/btnScreen"
+            style="@style/RailButton"
+            android:contentDescription="Phone screen"
+            android:src="@drawable/ic_phone_screen" />
+
+        <View
+            android:layout_width="1dp"
+            android:layout_height="0dp"
+            android:layout_weight="1" />
+
+        <ImageButton
+            android:id="@+id/btnBack"
+            style="@style/RailButton"
+            android:layout_marginBottom="10dp"
+            android:contentDescription="Back"
+            android:src="@drawable/ic_back" />
+
+        <ImageButton
+            android:id="@+id/btnMic"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
+            android:background="@drawable/mic_button_bg"
+            android:contentDescription="Voice"
+            android:elevation="4dp"
+            android:padding="15dp"
+            android:scaleType="fitCenter"
+            android:src="@drawable/ic_mic"
+            android:tint="#0B1A33" />
+    </LinearLayout>
+
+
+    <!-- Handle shown while the menu is hidden -->
+    <FrameLayout
+        android:id="@+id/railHandle"
+        android:layout_width="28dp"
+        android:layout_height="96dp"
+        android:layout_gravity="start|center_vertical"
+        android:contentDescription="Open menu"
+        android:elevation="10dp">
+
+        <View
+            android:layout_width="5dp"
+            android:layout_height="56dp"
+            android:layout_gravity="center"
+            android:background="@drawable/handle_pill" />
+    </FrameLayout>
+</FrameLayout>

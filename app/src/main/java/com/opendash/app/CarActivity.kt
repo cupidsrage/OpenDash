@@ -19,6 +19,7 @@ import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
+import android.view.animation.DecelerateInterpolator
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.TextView
@@ -113,11 +114,18 @@ class CarActivity : AppCompatActivity() {
         drivingBlock = findViewById(R.id.drivingBlock)
         bubble = findViewById(R.id.bubble)
 
-        btnHome.setOnClickListener { showPage(Page.HOME) }
-        btnApps.setOnClickListener { showPage(Page.APPS) }
-        btnScreen.setOnClickListener { showPage(Page.MIRROR) }
-        findViewById<View>(R.id.btnBack).setOnClickListener { goBack() }
-        findViewById<View>(R.id.btnMic).setOnClickListener { voice.listen() }
+        btnHome.setOnClickListener { showPage(Page.HOME); closeRailSoon() }
+        btnApps.setOnClickListener { showPage(Page.APPS); closeRailSoon() }
+        btnScreen.setOnClickListener { showPage(Page.MIRROR); closeRailSoon() }
+        findViewById<View>(R.id.btnBack).setOnClickListener { goBack(); pokeRail() }
+        findViewById<View>(R.id.btnMic).setOnClickListener { voice.listen(); closeRailSoon() }
+
+        rootView = root
+        rail = findViewById(R.id.rail)
+        railHandle = findViewById(R.id.railHandle)
+        content = findViewById(R.id.content)
+        railHandle.setOnClickListener { setRail(true, animate = true) }
+        rail.post { applyRailMode() }
         mirrorHint.setOnClickListener { ProjectionService.requestStart(this) }
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
@@ -206,6 +214,7 @@ class CarActivity : AppCompatActivity() {
         super.onStart()
         if (!onCarDisplay) return
         if (currentDisplayId() == Display.DEFAULT_DISPLAY) { finish(); return }
+        if (::rail.isInitialized) rail.post { applyRailMode() }
         UpdateManager.carConnected = true
         guard.start()
         ProjectionService.addListener(projectionListener)
@@ -239,6 +248,136 @@ class CarActivity : AppCompatActivity() {
             }
         }
         super.onDestroy()
+    }
+
+    // ---------------------------------------------------------------- slide-out menu
+
+    private lateinit var rootView: View
+    private lateinit var rail: View
+    private lateinit var railHandle: View
+    private lateinit var content: View
+    private var railOpen = true
+    private val autoHide = Runnable { setRail(false, animate = true) }
+
+    private val railHides: Boolean get() = Prefs.hideRail(this)
+    private fun dp(v: Int) = v * resources.displayMetrics.density
+
+    /** Hidden menu (content uses the full width) or docked menu (old layout). */
+    private fun applyRailMode() {
+        val lp = content.layoutParams as FrameLayout.LayoutParams
+        if (railHides) {
+            lp.marginStart = 0
+            content.layoutParams = lp
+            setRail(false, animate = false)
+        } else {
+            lp.marginStart = rail.width
+            content.layoutParams = lp
+            handler.removeCallbacks(autoHide)
+            rail.translationX = 0f
+            railHandle.visibility = View.GONE
+            railOpen = true
+        }
+    }
+
+    private fun setRail(open: Boolean, animate: Boolean) {
+        if (!railHides) return
+        railOpen = open
+        val target = if (open) 0f else -(rail.width + dp(12))
+        if (animate) {
+            rail.animate().translationX(target).setDuration(200)
+                .setInterpolator(DecelerateInterpolator()).start()
+        } else {
+            rail.animate().cancel()
+            rail.translationX = target
+        }
+        railHandle.visibility = if (open) View.INVISIBLE else View.VISIBLE
+        handler.removeCallbacks(autoHide)
+        if (open) handler.postDelayed(autoHide, 6000)
+    }
+
+    /** Keep the menu open a little longer while you're using it. */
+    private fun pokeRail() {
+        if (railHides && railOpen) {
+            handler.removeCallbacks(autoHide)
+            handler.postDelayed(autoHide, 6000)
+        }
+    }
+
+    private fun closeRailSoon() {
+        if (railHides && railOpen) {
+            handler.removeCallbacks(autoHide)
+            handler.postDelayed(autoHide, 350)
+        }
+    }
+
+    // Edge-swipe tracking
+    private var edgeDrag = false
+    private var edgeStartX = 0f
+    private var railSwipeStartX = -1f
+    private var swallowUntilUp = false
+
+    /**
+     * Swipe in from the left edge to pull the menu out, swipe it left (or tap
+     * anywhere else) to put it away.
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        if (!onCarDisplay || !railHides || !::rail.isInitialized) return super.dispatchTouchEvent(ev)
+        val left = rootView.paddingLeft
+        val railW = rail.width.toFloat()
+
+        if (swallowUntilUp) {
+            if (ev.actionMasked == MotionEvent.ACTION_UP || ev.actionMasked == MotionEvent.ACTION_CANCEL) {
+                swallowUntilUp = false
+            }
+            return true
+        }
+
+        when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> {
+                railSwipeStartX = -1f
+                if (!railOpen && ev.x <= left + dp(28)) {
+                    edgeDrag = true
+                    edgeStartX = ev.x
+                    rail.animate().cancel()
+                    railHandle.visibility = View.INVISIBLE
+                    return true
+                }
+                if (railOpen && ev.x > left + railW) {
+                    setRail(false, animate = true)
+                    swallowUntilUp = true
+                    return true
+                }
+                if (railOpen) {
+                    railSwipeStartX = ev.x
+                    pokeRail()
+                }
+            }
+            MotionEvent.ACTION_MOVE -> {
+                if (edgeDrag) {
+                    rail.translationX = (-railW + (ev.x - edgeStartX)).coerceIn(-railW, 0f)
+                    return true
+                }
+                if (railOpen && railSwipeStartX >= 0 && ev.x - railSwipeStartX < -dp(30)) {
+                    railSwipeStartX = -1f
+                    val cancel = MotionEvent.obtain(ev).apply { action = MotionEvent.ACTION_CANCEL }
+                    super.dispatchTouchEvent(cancel)
+                    cancel.recycle()
+                    setRail(false, animate = true)
+                    swallowUntilUp = true
+                    return true
+                }
+            }
+            MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (edgeDrag) {
+                    edgeDrag = false
+                    val dx = ev.x - edgeStartX
+                    // A tap on the edge or a swipe past a third of the way opens it.
+                    setRail(dx < dp(6) || dx > railW / 3, animate = true)
+                    return true
+                }
+            }
+        }
+        return super.dispatchTouchEvent(ev)
     }
 
     // ---------------------------------------------------------------- pages

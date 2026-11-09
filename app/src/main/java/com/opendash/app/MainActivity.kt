@@ -134,6 +134,9 @@ class MainActivity : AppCompatActivity() {
         }
 
         header("Options")
+        toggle("Hide the car menu (swipe in from the left edge to open)", Prefs.hideRail(this)) {
+            Prefs.setHideRail(this, it)
+        }
         toggle("Open apps directly on the car screen (phone can stay locked)", Prefs.directMode(this)) {
             Prefs.setDirectMode(this, it)
         }

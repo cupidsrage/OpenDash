@@ -14,6 +14,10 @@ object Prefs {
     fun blockVideo(c: Context) = sp(c).getBoolean("block_video", true)
     fun setBlockVideo(c: Context, v: Boolean) = sp(c).edit().putBoolean("block_video", v).apply()
 
+    /** Side menu hides and slides out from the left edge (vs. always shown). */
+    fun hideRail(c: Context) = sp(c).getBoolean("hide_rail", true)
+    fun setHideRail(c: Context, v: Boolean) = sp(c).edit().putBoolean("hide_rail", v).apply()
+
     /** Open apps on the car display instead of mirroring the phone. */
     fun directMode(c: Context) = sp(c).getBoolean("direct", true)
     fun setDirectMode(c: Context, v: Boolean) = sp(c).edit().putBoolean("direct", v).apply()
