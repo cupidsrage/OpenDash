@@ -1,4 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!-- "media" is a type Android Auto accepts from Unknown sources; the car UI
+     itself is a normal activity that Android Auto shows on the car display. -->
 <automotiveApp>
-    <uses name="template" />
+    <uses name="media" />
 </automotiveApp>

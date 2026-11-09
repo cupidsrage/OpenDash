@@ -12,9 +12,9 @@
     <!-- Driving detection (pauses video apps while moving) -->
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- Android Auto: draw our own UI on the car screen -->
-    <uses-permission android:name="androidx.car.app.NAVIGATION_TEMPLATES" />
+    <!-- Android Auto car-display markers -->
     <uses-permission android:name="androidx.car.app.ACCESS_SURFACE" />
+    <uses-permission android:name="androidx.car.app.MAP_TEMPLATES" />
     <!-- Self-updates from GitHub releases -->
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
@@ -34,6 +34,8 @@
     <application
         android:name=".OpenDashApp"
         android:allowBackup="false"
+        android:appCategory="game"
+        android:hardwareAccelerated="true"
         android:icon="@mipmap/ic_launcher"
         android:label="@string/app_name"
         android:theme="@style/Theme.OpenDash">
@@ -43,16 +45,44 @@
             android:resource="@xml/automotive_app_desc" />
         <meta-data
             android:name="androidx.car.app.minCarApiLevel"
-            android:value="5" />
+            android:value="7" />
+        <meta-data
+            android:name="distractionOptimized"
+            android:value="true" />
 
+        <!-- Shown on the car display by Android Auto (Android 15+).
+             Opened from the phone's home screen, it forwards to MainActivity. -->
         <activity
-            android:name=".MainActivity"
-            android:exported="true">
+            android:name=".CarActivity"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|density|uiMode|keyboard|keyboardHidden|navigation"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:launchMode="singleTop"
+            android:resizeableActivity="true"
+            android:theme="@style/Theme.OpenDash.Car">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.CAR_LAUNCHER" />
+                <category android:name="androidx.car.app.category.NAVIGATION" />
+                <category android:name="android.intent.category.APP_MAPS" />
             </intent-filter>
+            <layout
+                android:defaultWidth="800dp"
+                android:defaultHeight="480dp"
+                android:gravity="fill"
+                android:minWidth="1dp"
+                android:minHeight="1dp" />
+            <meta-data
+                android:name="distractionOptimized"
+                android:value="true" />
         </activity>
+
+        <!-- Phone setup screen -->
+        <activity
+            android:name=".MainActivity"
+            android:exported="false" />
 
         <activity
             android:name=".ProjectionRequestActivity"
@@ -61,15 +91,6 @@
             android:launchMode="singleTask"
             android:taskAffinity=""
             android:theme="@android:style/Theme.Translucent.NoTitleBar" />
-
-        <service
-            android:name=".DashCarAppService"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="androidx.car.app.CarAppService" />
-                <category android:name="androidx.car.app.category.NAVIGATION" />
-            </intent-filter>
-        </service>
 
         <service
             android:name=".ProjectionService"

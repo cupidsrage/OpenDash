@@ -55,9 +55,11 @@ class ProjectionService : Service() {
 
         fun requestStart(c: Context) {
             if (isActive) return
+            // The "Start now" prompt has to appear on the phone, not the car.
             c.startActivity(
                 Intent(c, ProjectionRequestActivity::class.java)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK),
+                AppRepository.onPhone()
             )
         }
 

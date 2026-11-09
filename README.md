@@ -5,12 +5,19 @@ Open any app on the car display, control it by touch, and use voice for apps, na
 
 ## How it works
 
-- Android Auto gives navigation apps a raw drawing surface. OpenDash draws its own
-  Android-Auto-style launcher there (rail on the left, Home, All apps, Phone screen, mic).
+Requires **Android 15 or newer**.
+
+- Android Auto on Android 15+ can show a normal app screen on the car display. OpenDash's
+  car screen is one of those: an Android-Auto-style launcher (rail on the left, Home,
+  All apps, Phone screen, mic).
 - Picking an app opens it on the phone, and the phone's screen is mirrored onto the car display.
-- Taps and swipes on the car screen are replayed on the phone through an Accessibility service.
+- Touches on the car screen are recorded and replayed on the phone through an Accessibility
+  service, including swipes, long presses and two-finger pinch.
 - While connected, the phone is held in landscape so apps fill the wide car screen.
 - When the car disconnects, sharing stops and the phone goes back to normal.
+
+Android Auto 17.9+ ignores sideloaded Car App Library ("template") apps even with Unknown
+sources on, which is why OpenDash doesn't use that library.
 
 ## Build the APK
 

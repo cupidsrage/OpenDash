@@ -109,11 +109,11 @@ class MainActivity : AppCompatActivity() {
 
         step(
             "4. Allow OpenDash in Android Auto",
-            "Open Android Auto settings (Settings → Connected devices → Android Auto). Scroll down and tap Version about 10 times until developer mode turns on. Tap ⋮ → Developer settings → turn on Unknown sources. Back in Android Auto settings → Customize launcher, make sure OpenDash is checked.",
+            "In Settings, search “Android Auto” and open it (not App info). Scroll to the bottom, tap Version about 10 times and tap OK. Then ⋮ → Developer settings → turn on Unknown sources. Force stop Android Auto afterwards so it picks up OpenDash.",
             null,
-            buttonLabel = "Open Android Auto"
+            buttonLabel = "Open Settings"
         ) {
-            openAndroidAutoSettings()
+            startActivity(Intent(Settings.ACTION_SETTINGS))
         }
 
         step(
@@ -153,18 +153,6 @@ class MainActivity : AppCompatActivity() {
         button("Check for updates now") { checkForUpdates(interactive = true) }
 
         text("On the car: Home shows recent apps, the grid button shows every app, the phone button shows your phone's screen. The blue mic takes “open Spotify”, “navigate to Walmart”, or “play some Zach Bryan”.", 13f)
-    }
-
-    private fun openAndroidAutoSettings() {
-        val gearhead = "com.google.android.projection.gearhead"
-        val direct = packageManager.getLaunchIntentForPackage(gearhead)
-        try {
-            startActivity(
-                direct ?: Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:$gearhead"))
-            )
-        } catch (_: Exception) {
-            startActivity(Intent(Settings.ACTION_SETTINGS))
-        }
     }
 
     // ---------------------------------------------------------------- tiny view helpers

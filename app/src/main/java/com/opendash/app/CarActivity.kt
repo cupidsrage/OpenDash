@@ -1,22 +1,18 @@
 package com.opendash.app
 
-import android.app.Presentation
+import android.accessibilityservice.GestureDescription
+import android.annotation.SuppressLint
 import android.app.SearchManager
-import android.content.Context
 import android.content.Intent
-import android.graphics.Point
-import android.graphics.Rect
-import android.graphics.RectF
+import android.graphics.Path
 import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
-import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.Display
 import android.view.Gravity
-import android.view.InputDevice
 import android.view.MotionEvent
 import android.view.Surface
 import android.view.TextureView
@@ -24,30 +20,30 @@ import android.view.View
 import android.widget.FrameLayout
 import android.widget.ImageButton
 import android.widget.TextView
+import androidx.activity.OnBackPressedCallback
+import androidx.appcompat.app.AppCompatActivity
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.GridLayoutManager
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
-import kotlin.math.hypot
 import kotlin.math.max
 import kotlin.math.min
 
 /**
- * Everything you see on the car screen. Rendered onto the Android Auto
- * surface through a private virtual display.
+ * The car screen. Android Auto (Android 15+) shows this activity directly on
+ * the car display. Opened on the phone itself, it forwards to the setup screen.
  */
-class CarShellPresentation(outer: Context, display: Display) :
-    Presentation(outer, display, R.style.Theme_OpenDash_Car) {
+class CarActivity : AppCompatActivity() {
 
     enum class Page { HOME, APPS, MIRROR }
 
     private val handler = Handler(Looper.getMainLooper())
-    private val appCtx = outer.applicationContext
-    private val apps = AppRepository(appCtx)
+    private lateinit var apps: AppRepository
 
-    private lateinit var root: View
     private lateinit var railClock: TextView
     private lateinit var btnHome: ImageButton
     private lateinit var btnApps: ImageButton
@@ -72,24 +68,34 @@ class CarShellPresentation(outer: Context, display: Display) :
 
     private var page = Page.HOME
     private var mirrorSurface: Surface? = null
-    private var pendingSafeArea: Rect? = null
-    private var created = false
-
-    // Scroll gestures arrive as many small deltas; we batch them into one swipe.
-    private var accX = 0f
-    private var accY = 0f
-    private val flushScroll = Runnable { flushSwipe(-accX, -accY, 220) }
+    private var onCarDisplay = false
 
     private val projectionListener: () -> Unit = { handler.post { onProjectionChanged() } }
     private val packageListener: (String) -> Unit = { handler.post { updateDrivingBlock() } }
 
-    // ---------------------------------------------------------------- setup
+    // ---------------------------------------------------------------- lifecycle
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setContentView(R.layout.car_shell)
 
-        root = findViewById(R.id.root)
+        onCarDisplay = currentDisplayId() != Display.DEFAULT_DISPLAY
+        if (!onCarDisplay) {
+            // Tapped the icon on the phone: show setup instead.
+            startActivity(Intent(this, MainActivity::class.java))
+            finish()
+            return
+        }
+
+        setContentView(R.layout.car_shell)
+        apps = AppRepository(applicationContext)
+
+        val root = findViewById<View>(R.id.root)
+        ViewCompat.setOnApplyWindowInsetsListener(root) { v, insets ->
+            val bars = insets.getInsets(WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout())
+            v.setPadding(bars.left, bars.top, bars.right, bars.bottom)
+            insets
+        }
+
         railClock = findViewById(R.id.railClock)
         btnHome = findViewById(R.id.btnHome)
         btnApps = findViewById(R.id.btnApps)
@@ -111,15 +117,20 @@ class CarShellPresentation(outer: Context, display: Display) :
         btnScreen.setOnClickListener { showPage(Page.MIRROR) }
         findViewById<View>(R.id.btnBack).setOnClickListener { goBack() }
         findViewById<View>(R.id.btnMic).setOnClickListener { voice.listen() }
+        mirrorHint.setOnClickListener { ProjectionService.requestStart(this) }
 
-        recentRow.layoutManager = LinearLayoutManager(context, RecyclerView.HORIZONTAL, false)
+        onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
+            override fun handleOnBackPressed() = goBack()
+        })
+
+        recentRow.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
         recentRow.adapter = recentAdapter
 
-        val grid = GridLayoutManager(context, 5)
+        val grid = GridLayoutManager(this, 5)
         pageApps.layoutManager = grid
         pageApps.adapter = gridAdapter
         pageApps.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val tile = (132 * context.resources.displayMetrics.density).toInt()
+            val tile = (132 * resources.displayMetrics.density).toInt()
             val span = max(3, (v.width - v.paddingLeft - v.paddingRight) / tile)
             if (grid.spanCount != span) handler.post { grid.spanCount = span }
         }
@@ -135,62 +146,84 @@ class CarShellPresentation(outer: Context, display: Display) :
                 return true
             }
         }
+        mirrorView.setOnTouchListener(TouchForwarder())
         pageMirror.addOnLayoutChangeListener { _, l, t, r, b, ol, ot, or_, ob ->
             if (r - l != or_ - ol || b - t != ob - ot) handler.post { fitMirror() }
         }
 
-        voice = VoiceController(appCtx, apps, ::showBubble, ::runCommand)
-        guard = DrivingGuard(appCtx) { updateDrivingBlock() }
-        guard.start()
+        voice = VoiceController(applicationContext, apps, ::showBubble, ::runCommand)
+        guard = DrivingGuard(applicationContext) { updateDrivingBlock() }
 
-        ProjectionService.addListener(projectionListener)
-        TouchInjectorService.packageListeners.add(packageListener)
-
-        created = true
-        pendingSafeArea?.let { setSafeArea(it) }
-
-        // Load apps off the main thread; icons can take a moment.
         Thread {
             val list = apps.all(refresh = true)
             handler.post {
+                if (isDestroyed) return@post
                 gridAdapter.submit(list)
                 refreshRecents()
             }
         }.start()
 
-        tick()
         showPage(Page.HOME)
+
+        // The car just connected and opened us: get screen sharing going right away
+        // so the phone prompt is already waiting when you reach for an app.
+        ProjectionService.requestStart(this)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun currentDisplayId(): Int =
+        if (android.os.Build.VERSION.SDK_INT >= 30) display?.displayId ?: Display.DEFAULT_DISPLAY
+        else windowManager.defaultDisplay.displayId
+
+    override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
+        super.onConfigurationChanged(newConfig)
+        // If the car display went away, Android may move us onto the phone. Close instead.
+        if (onCarDisplay && currentDisplayId() == Display.DEFAULT_DISPLAY) finish()
+        else if (onCarDisplay) handler.post { fitMirror() }
+    }
+
+    override fun onStart() {
+        super.onStart()
+        if (!onCarDisplay) return
+        if (currentDisplayId() == Display.DEFAULT_DISPLAY) { finish(); return }
+        UpdateManager.carConnected = true
+        guard.start()
+        ProjectionService.addListener(projectionListener)
+        TouchInjectorService.packageListeners.add(packageListener)
+        tick()
         onProjectionChanged()
     }
 
-    fun release() {
-        handler.removeCallbacksAndMessages(null)
-        if (!created) return
-        created = false
-        ProjectionService.removeListener(projectionListener)
-        TouchInjectorService.packageListeners.remove(packageListener)
-        ProjectionService.instance?.detachMirror()
-        mirrorSurface?.release()
-        mirrorSurface = null
-        voice.release()
-        guard.stop()
+    override fun onStop() {
+        if (onCarDisplay) {
+            handler.removeCallbacksAndMessages(null)
+            guard.stop()
+            ProjectionService.removeListener(projectionListener)
+            TouchInjectorService.packageListeners.remove(packageListener)
+        }
+        super.onStop()
     }
 
-    /** Keep our content out from under Android Auto's own buttons. */
-    fun setSafeArea(area: Rect) {
-        if (!created) { pendingSafeArea = area; return }
-        val w = root.width.takeIf { it > 0 } ?: display.mode.physicalWidth
-        val h = root.height.takeIf { it > 0 } ?: display.mode.physicalHeight
-        if (area.isEmpty) return
-        root.setPadding(
-            area.left.coerceAtLeast(0), area.top.coerceAtLeast(0),
-            (w - area.right).coerceAtLeast(0), (h - area.bottom).coerceAtLeast(0)
-        )
+    override fun onDestroy() {
+        if (onCarDisplay) {
+            voice.release()
+            ProjectionService.instance?.detachMirror()
+            mirrorSurface?.release()
+            mirrorSurface = null
+            if (isFinishing || !isChangingConfigurations) {
+                // Car disconnected: stop sharing, let the phone rotate normally,
+                // and install any update that came out while driving.
+                ProjectionService.stop(applicationContext)
+                UpdateManager.carConnected = false
+                UpdateWorker.checkSoon(applicationContext, delayMinutes = 2)
+            }
+        }
+        super.onDestroy()
     }
 
     // ---------------------------------------------------------------- pages
 
-    fun showPage(p: Page) {
+    private fun showPage(p: Page) {
         page = p
         pageHome.visibility = if (p == Page.HOME) View.VISIBLE else View.GONE
         pageApps.visibility = if (p == Page.APPS) View.VISIBLE else View.GONE
@@ -202,7 +235,7 @@ class CarShellPresentation(outer: Context, display: Display) :
             Page.HOME -> refreshRecents()
             Page.APPS -> pageApps.scrollToPosition(0)
             Page.MIRROR -> {
-                ProjectionService.requestStart(appCtx)
+                ProjectionService.requestStart(this)
                 handler.post { fitMirror() }
             }
         }
@@ -210,9 +243,8 @@ class CarShellPresentation(outer: Context, display: Display) :
     }
 
     private fun refreshRecents() {
-        val pkgs = Prefs.recents(appCtx).ifEmpty { Prefs.DEFAULT_FAVORITES }
-        val list = pkgs.mapNotNull { apps.byPackage(it) }.take(8)
-        recentAdapter.submit(list)
+        val pkgs = Prefs.recents(this).ifEmpty { Prefs.DEFAULT_FAVORITES }
+        recentAdapter.submit(pkgs.mapNotNull { apps.byPackage(it) }.take(8))
     }
 
     private fun tick() {
@@ -227,8 +259,8 @@ class CarShellPresentation(outer: Context, display: Display) :
     private fun onProjectionChanged() {
         val active = ProjectionService.isActive
         homeStatus.text = when {
-            !TouchInjectorService.isEnabled(appCtx) -> "Turn on OpenDash in Accessibility to control apps from here"
-            !active -> "Phone screen not shared yet. Open any app to start"
+            !TouchInjectorService.isEnabled(this) -> "Turn on OpenDash in Accessibility to control apps from here"
+            !active -> "Tap “Start now” on your phone to share its screen"
             else -> ""
         }
         homeStatus.visibility = if (homeStatus.text.isNullOrEmpty()) View.GONE else View.VISIBLE
@@ -240,11 +272,7 @@ class CarShellPresentation(outer: Context, display: Display) :
     // ---------------------------------------------------------------- launching
 
     private fun launch(pkg: String) {
-        if (apps.launch(pkg)) {
-            showPage(Page.MIRROR)
-        } else {
-            showBubble("Couldn't open that app")
-        }
+        if (apps.launch(pkg)) showPage(Page.MIRROR) else showBubble("Couldn't open that app")
     }
 
     private fun goBack() {
@@ -306,7 +334,7 @@ class CarShellPresentation(outer: Context, display: Display) :
         val aw = pageMirror.width
         val ah = pageMirror.height
         if (aw <= 0 || ah <= 0) return
-        val phone = phoneScreenSize(appCtx)
+        val phone = phoneScreenSize(this)
         val scale = min(aw.toFloat() / phone.x, ah.toFloat() / phone.y)
         val w = (phone.x * scale).toInt()
         val h = (phone.y * scale).toInt()
@@ -332,107 +360,86 @@ class CarShellPresentation(outer: Context, display: Display) :
     }
 
     private val isBlocked: Boolean
-        get() = guard.moving && Prefs.blockVideo(appCtx) &&
+        get() = guard.moving && Prefs.blockVideo(this) &&
             (TouchInjectorService.foregroundPackage ?: "") in Prefs.VIDEO_APPS
 
     private fun updateDrivingBlock() {
         drivingBlock.visibility = if (page == Page.MIRROR && isBlocked) View.VISIBLE else View.GONE
     }
 
-    private fun mirrorRect(): RectF {
-        val loc = IntArray(2)
-        mirrorView.getLocationInWindow(loc)
-        return RectF(
-            loc[0].toFloat(), loc[1].toFloat(),
-            (loc[0] + mirrorView.width).toFloat(), (loc[1] + mirrorView.height).toFloat()
-        )
-    }
+    /**
+     * Records each finger's path on the car screen and replays it on the phone
+     * as one gesture when the last finger lifts: taps, long presses, swipes,
+     * scrolls and two-finger pinch all come through with their real shape and timing.
+     */
+    private inner class TouchForwarder : View.OnTouchListener {
+        private inner class Track(val path: Path, val start: Long) {
+            var end: Long = start
+        }
 
-    /** Car-screen point inside the mirror -> phone-screen pixel. */
-    private fun toPhone(x: Float, y: Float, r: RectF, phone: Point): Pair<Float, Float> =
-        ((x - r.left) / r.width() * phone.x) to ((y - r.top) / r.height() * phone.y)
+        private val tracks = LinkedHashMap<Int, Track>()
+        private var gestureStart = 0L
 
-    // ---------------------------------------------------------------- input from the car
+        @SuppressLint("ClickableViewAccessibility")
+        override fun onTouch(v: View, e: MotionEvent): Boolean {
+            if (!ProjectionService.isActive || isBlocked) return true
+            val phone = phoneScreenSize(this@CarActivity)
+            val sx = phone.x / v.width.toFloat()
+            val sy = phone.y / v.height.toFloat()
+            fun px(x: Float) = (x * sx).coerceIn(1f, phone.x - 1f)
+            fun py(y: Float) = (y * sy).coerceIn(1f, phone.y - 1f)
 
-    fun handleTap(x: Float, y: Float) {
-        if (page == Page.MIRROR && ProjectionService.isActive) {
-            val r = mirrorRect()
-            if (r.width() > 0 && r.contains(x, y)) {
-                if (isBlocked) return
-                val inj = TouchInjectorService.instance
-                if (inj == null) {
-                    showBubble("Turn on OpenDash in your phone's Accessibility settings")
-                    return
+            when (e.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    tracks.clear()
+                    gestureStart = e.eventTime
+                    begin(e, 0, ::px, ::py)
                 }
-                val (px, py) = toPhone(x, y, r, phoneScreenSize(appCtx))
-                inj.tap(px, py)
+                MotionEvent.ACTION_POINTER_DOWN -> begin(e, e.actionIndex, ::px, ::py)
+                MotionEvent.ACTION_MOVE -> {
+                    for (i in 0 until e.pointerCount) {
+                        val t = tracks[e.getPointerId(i)] ?: continue
+                        for (h in 0 until e.historySize) {
+                            t.path.lineTo(px(e.getHistoricalX(i, h)), py(e.getHistoricalY(i, h)))
+                        }
+                        t.path.lineTo(px(e.getX(i)), py(e.getY(i)))
+                        t.end = e.eventTime
+                    }
+                }
+                MotionEvent.ACTION_POINTER_UP -> tracks[e.getPointerId(e.actionIndex)]?.end = e.eventTime
+                MotionEvent.ACTION_UP -> {
+                    tracks[e.getPointerId(e.actionIndex)]?.end = e.eventTime
+                    dispatch()
+                }
+                MotionEvent.ACTION_CANCEL -> tracks.clear()
+            }
+            return true
+        }
+
+        private fun begin(e: MotionEvent, index: Int, px: (Float) -> Float, py: (Float) -> Float) {
+            if (tracks.size >= GestureDescription.getMaxStrokeCount()) return
+            val path = Path().apply { moveTo(px(e.getX(index)), py(e.getY(index))) }
+            tracks[e.getPointerId(index)] = Track(path, e.eventTime)
+        }
+
+        private fun dispatch() {
+            val inj = TouchInjectorService.instance
+            if (inj == null) {
+                showBubble("Turn on OpenDash in your phone's Accessibility settings")
+                tracks.clear()
                 return
             }
-        }
-        syntheticTap(x, y)
-    }
-
-    fun handleScroll(dx: Float, dy: Float) {
-        when (page) {
-            Page.APPS -> pageApps.scrollBy(0, dy.toInt())
-            Page.HOME -> recentRow.scrollBy(dx.toInt(), 0)
-            Page.MIRROR -> {
-                accX += dx
-                accY += dy
-                handler.removeCallbacks(flushScroll)
-                handler.postDelayed(flushScroll, 90)
+            val maxDur = GestureDescription.getMaxGestureDuration() - 1
+            val builder = GestureDescription.Builder()
+            var any = false
+            for (t in tracks.values) {
+                val startAt = (t.start - gestureStart).coerceIn(0, maxDur - 1)
+                val dur = (t.end - t.start).coerceIn(1, maxDur - startAt)
+                builder.addStroke(GestureDescription.StrokeDescription(t.path, startAt, dur))
+                any = true
             }
+            tracks.clear()
+            if (any) inj.dispatch(builder.build())
         }
-    }
-
-    fun handleFling(vx: Float, vy: Float) {
-        when (page) {
-            Page.APPS -> pageApps.fling(0, (-vy).toInt())
-            Page.HOME -> recentRow.fling((-vx).toInt(), 0)
-            Page.MIRROR -> {
-                handler.removeCallbacks(flushScroll)
-                // Finger travel so far, plus a bit of momentum.
-                flushSwipe(-accX + vx * 0.12f, -accY + vy * 0.12f, 120)
-            }
-        }
-    }
-
-    /** Replays a drag of ([fingerDx], [fingerDy]) car pixels as one swipe on the phone. */
-    private fun flushSwipe(fingerDx: Float, fingerDy: Float, durationMs: Long) {
-        accX = 0f
-        accY = 0f
-        if (isBlocked) return
-        val inj = TouchInjectorService.instance ?: return
-        val r = mirrorRect()
-        if (r.width() <= 0) return
-        val phone = phoneScreenSize(appCtx)
-        val dx = fingerDx / r.width() * phone.x
-        val dy = fingerDy / r.height() * phone.y
-        if (hypot(dx, dy) < 12f) return
-        val cx = phone.x / 2f
-        val cy = phone.y / 2f
-        val maxX = phone.x - 2f
-        val maxY = phone.y - 2f
-        inj.swipe(
-            (cx - dx / 2).coerceIn(2f, maxX), (cy - dy / 2).coerceIn(2f, maxY),
-            (cx + dx / 2).coerceIn(2f, maxX), (cy + dy / 2).coerceIn(2f, maxY),
-            durationMs
-        )
-    }
-
-    /** Delivers a tap to our own views (rail buttons, app tiles). */
-    private fun syntheticTap(x: Float, y: Float) {
-        val decor = window?.decorView ?: return
-        val t = SystemClock.uptimeMillis()
-        val down = MotionEvent.obtain(t, t, MotionEvent.ACTION_DOWN, x, y, 0).apply {
-            source = InputDevice.SOURCE_TOUCHSCREEN
-        }
-        decor.dispatchTouchEvent(down)
-        down.recycle()
-        val up = MotionEvent.obtain(t, t + 50, MotionEvent.ACTION_UP, x, y, 0).apply {
-            source = InputDevice.SOURCE_TOUCHSCREEN
-        }
-        decor.dispatchTouchEvent(up)
-        up.recycle()
     }
 }

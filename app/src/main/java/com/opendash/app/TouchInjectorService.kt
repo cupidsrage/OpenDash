@@ -66,10 +66,12 @@ class TouchInjectorService : AccessibilityService() {
     fun back() = performGlobalAction(GLOBAL_ACTION_BACK)
     fun home() = performGlobalAction(GLOBAL_ACTION_HOME)
 
+    fun dispatch(gesture: GestureDescription): Boolean = dispatchGesture(gesture, null, null)
+
     private fun stroke(path: Path, durationMs: Long): Boolean {
         val g = GestureDescription.Builder()
             .addStroke(GestureDescription.StrokeDescription(path, 0, durationMs.coerceAtLeast(1)))
             .build()
-        return dispatchGesture(g, null, null)
+        return dispatch(g)
     }
 }

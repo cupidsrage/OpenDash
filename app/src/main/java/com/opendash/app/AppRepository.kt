@@ -2,7 +2,9 @@ package com.opendash.app
 
 import android.content.Context
 import android.content.Intent
+import android.app.ActivityOptions
 import android.graphics.drawable.Drawable
+import android.view.Display
 
 data class AppEntry(val packageName: String, val label: String, val icon: Drawable)
 
@@ -43,7 +45,7 @@ class AppRepository(private val ctx: Context) {
         val intent = ctx.packageManager.getLaunchIntentForPackage(pkg) ?: return false
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_RESET_TASK_IF_NEEDED)
         return try {
-            ctx.startActivity(intent)
+            ctx.startActivity(intent, onPhone())
             Prefs.addRecent(ctx, pkg)
             true
         } catch (e: Exception) {
@@ -52,9 +54,14 @@ class AppRepository(private val ctx: Context) {
     }
 
     fun startIntent(intent: Intent): Boolean = try {
-        ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        ctx.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK), onPhone())
         true
     } catch (e: Exception) {
         false
+    }
+
+    companion object {
+        /** Open on the phone's own screen (which is mirrored), not the car display. */
+        fun onPhone() = ActivityOptions.makeBasic().setLaunchDisplayId(Display.DEFAULT_DISPLAY).toBundle()
     }
 }
