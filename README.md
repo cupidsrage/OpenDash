@@ -22,6 +22,19 @@ Open any app on the car display, control it by touch, and use voice for apps, na
 **Option B: Android Studio**
 Open this folder, let Gradle sync, then *Build → Build APK(s)*.
 
+## Automatic updates
+
+Every push to `main` builds a new APK and publishes it as a GitHub release (`v<build number>`).
+The app checks for a newer release every 3 hours, when you open it, and a couple of minutes
+after you disconnect from the car. It never installs while connected to the car.
+
+- The first update shows a one-tap **Update** prompt. After that, Android 12+ installs
+  updates silently, because OpenDash is then the app that installed itself.
+- The repo must be **public** so the phone can read the releases.
+- Builds are signed with a key stored only in repo secrets (`KEYSTORE_BASE64`,
+  `KEYSTORE_PASSWORD`, `KEY_ALIAS`, `KEY_PASSWORD`). Without them the workflow builds a test
+  APK but publishes no release. Never commit the key.
+
 ## One-time phone setup
 
 Open OpenDash on your phone and work down the checklist:

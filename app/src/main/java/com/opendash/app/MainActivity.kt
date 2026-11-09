@@ -41,6 +41,35 @@ class MainActivity : AppCompatActivity() {
     override fun onResume() {
         super.onResume()
         render()
+        if (!autoChecked) {
+            autoChecked = true
+            checkForUpdates(interactive = true)
+        }
+    }
+
+    private var updateStatus: String? = null
+    private var autoChecked = false
+
+    private fun checkForUpdates(interactive: Boolean) {
+        if (!packageManager.canRequestPackageInstalls()) {
+            updateStatus = "Turn on step 5 to get updates."
+            render()
+            return
+        }
+        updateStatus = "Checking for updates…"
+        render()
+        Thread {
+            val result = UpdateManager.checkAndInstall(applicationContext, interactive)
+            runOnUiThread {
+                updateStatus = when (result) {
+                    UpdateManager.Result.UpToDate -> "You're on the latest version."
+                    is UpdateManager.Result.Installing -> "Installing ${result.version}…"
+                    is UpdateManager.Result.Deferred -> "${result.version} will install when you leave the car."
+                    is UpdateManager.Result.Failed -> result.reason
+                }
+                if (!isFinishing) render()
+            }
+        }.start()
     }
 
     override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
@@ -88,7 +117,15 @@ class MainActivity : AppCompatActivity() {
         }
 
         step(
-            "5. Keep the phone unlocked in the car",
+            "5. Allow automatic updates",
+            "Lets OpenDash install new versions of itself from GitHub. Turn on “Allow from this source”.",
+            packageManager.canRequestPackageInstalls()
+        ) {
+            startActivity(Intent(Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES, Uri.parse("package:$packageName")))
+        }
+
+        step(
+            "6. Keep the phone unlocked in the car",
             "A locked phone shows its lock screen on the car display. Turn on Smart Lock / Extend Unlock with your car's Bluetooth as a trusted device.",
             null,
             buttonLabel = "Open security settings"
@@ -110,6 +147,11 @@ class MainActivity : AppCompatActivity() {
         } else {
             button("Try screen sharing now") { ProjectionService.requestStart(this) }
         }
+        header("Updates")
+        text("Version ${BuildConfig.VERSION_NAME}. Checks GitHub every few hours and installs new versions automatically (never while you're connected to the car).", 14f)
+        updateStatus?.let { text(it, 14f) }
+        button("Check for updates now") { checkForUpdates(interactive = true) }
+
         text("On the car: Home shows recent apps, the grid button shows every app, the phone button shows your phone's screen. The blue mic takes “open Spotify”, “navigate to Walmart”, or “play some Zach Bryan”.", 13f)
     }
 

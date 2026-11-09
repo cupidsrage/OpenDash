@@ -2,7 +2,11 @@ name: Build APK
 
 on:
   push:
+    branches: [main]
   workflow_dispatch:
+
+permissions:
+  contents: write
 
 jobs:
   build:
@@ -17,12 +21,45 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Build debug APK
+      # The signing key lives only in repo secrets. Without it, the build still runs
+      # (as a test) but no release is published, so phones never get a mismatched update.
+      - name: Load signing key
+        id: key
+        env:
+          KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KEYSTORE_BASE64" ]; then
+            echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+            echo "KEYSTORE_FILE=$RUNNER_TEMP/release.jks" >> "$GITHUB_ENV"
+            echo "signed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "::warning::No KEYSTORE_BASE64 secret: building a test APK only, no release published."
+            echo "signed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Build APK
+        env:
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
         run: |
           chmod +x gradlew
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleRelease -PversionCode=${{ github.run_number }} --stacktrace
+          cp app/build/outputs/apk/release/app-release.apk OpenDash.apk
 
       - uses: actions/upload-artifact@v4
         with:
           name: OpenDash-apk
-          path: app/build/outputs/apk/debug/*.apk
+          path: OpenDash.apk
+
+      # The phone app checks the latest release and installs it.
+      - name: Publish release
+        if: steps.key.outputs.signed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NOTES: ${{ github.event.head_commit.message || 'Manual build' }}
+        run: |
+          gh release create "v${{ github.run_number }}" OpenDash.apk \
+            --title "OpenDash 0.1.${{ github.run_number }}" \
+            --notes "$NOTES" \
+            --latest

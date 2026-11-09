@@ -37,6 +37,7 @@ class DashScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleO
     }
 
     override fun onCreate(owner: LifecycleOwner) {
+        UpdateManager.carConnected = true
         carContext.getCarService(AppManager::class.java).setSurfaceCallback(renderer)
         // The car just connected and opened us: ask for screen sharing right away
         // so the phone prompt is already waiting when you reach for an app.
@@ -47,6 +48,9 @@ class DashScreen(carContext: CarContext) : Screen(carContext), DefaultLifecycleO
         renderer.release()
         // Car disconnected: stop sharing and let the phone rotate normally again.
         ProjectionService.stop(carContext.applicationContext)
+        // Parked: install any update that came out while driving.
+        UpdateManager.carConnected = false
+        UpdateWorker.checkSoon(carContext.applicationContext, delayMinutes = 2)
     }
 
     override fun onGetTemplate(): Template {
