@@ -122,7 +122,11 @@ class PrivilegedService() : IPrivileged.Stub() {
         }
     }
 
-    private val displayControl: Class<*> by lazy {
+    private val displayControl: Class<*> by lazy { loadDisplayControl() }
+
+    // Only ever runs inside Shizuku's shell-level process, where these calls are allowed.
+    @SuppressLint("PrivateApi", "DiscouragedPrivateApi", "BlockedPrivateApi", "SoonBlockedPrivateApi")
+    private fun loadDisplayControl(): Class<*> {
         val factory = Class.forName("com.android.internal.os.ClassLoaderFactory")
         val create = factory.getDeclaredMethod(
             "createClassLoader",
@@ -138,7 +142,7 @@ class PrivilegedService() : IPrivileged.Stub() {
         val loadLibrary = Runtime::class.java.getDeclaredMethod("loadLibrary0", Class::class.java, String::class.java)
         loadLibrary.isAccessible = true
         loadLibrary.invoke(Runtime.getRuntime(), cls, "android_servers")
-        cls
+        return cls
     }
 
     // ------------------------------------------------------------ hidden-API plumbing
