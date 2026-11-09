@@ -1,0 +1,4 @@
+<resources>
+    <string name="app_name">OpenDash</string>
+    <string name="accessibility_desc">Lets taps, swipes and the Back button on your car screen control apps on your phone while OpenDash is running in Android Auto. OpenDash does not read your screen content.</string>
+</resources>

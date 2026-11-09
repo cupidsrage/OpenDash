@@ -1,0 +1,62 @@
+# OpenDash
+
+Turns Android Auto into a full Android screen, like an OttoAibox, using just your phone.
+Open any app on the car display, control it by touch, and use voice for apps, navigation and music.
+
+## How it works
+
+- Android Auto gives navigation apps a raw drawing surface. OpenDash draws its own
+  Android-Auto-style launcher there (rail on the left, Home, All apps, Phone screen, mic).
+- Picking an app opens it on the phone, and the phone's screen is mirrored onto the car display.
+- Taps and swipes on the car screen are replayed on the phone through an Accessibility service.
+- While connected, the phone is held in landscape so apps fill the wide car screen.
+- When the car disconnects, sharing stops and the phone goes back to normal.
+
+## Build the APK
+
+**Option A: GitHub (no Android Studio needed)**
+1. Create a new repo on GitHub and push this folder to it.
+2. Open the repo's **Actions** tab. The "Build APK" workflow runs on every push (or press *Run workflow*).
+3. When it finishes, download the **OpenDash-apk** artifact, unzip it, and install `app-debug.apk` on your phone.
+
+**Option B: Android Studio**
+Open this folder, let Gradle sync, then *Build → Build APK(s)*.
+
+## One-time phone setup
+
+Open OpenDash on your phone and work down the checklist:
+
+1. **Display over other apps**: lets it launch apps from the car and hold landscape.
+2. **Accessibility → OpenDash → On**: makes car-screen touches control the phone.
+3. **Microphone, location, notifications**.
+4. **Android Auto developer mode → Unknown sources**: Android Auto settings → tap *Version*
+   ~10 times → ⋮ → *Developer settings* → *Unknown sources* on. Then *Customize launcher* and
+   make sure OpenDash is checked. Sideloaded apps don't appear in Android Auto without this.
+5. **Smart Lock / Extend Unlock** with the car's Bluetooth, so the phone stays unlocked.
+
+## Starting automatically
+
+Android Auto itself starts when the phone connects (wired or wireless). It reopens the
+last app you used, so leave OpenDash open when you park and it comes back up next drive.
+OpenDash asks for screen sharing as soon as it opens. Android requires you to tap
+**Start now** on the phone once per drive; no app can skip that prompt.
+
+## Voice
+
+Tap the blue mic on the car screen:
+- "open Spotify", "launch YouTube Music"
+- "navigate to Walmart", "take me to 123 Main St"
+- "play Zach Bryan"
+- "home", "apps", "back"
+
+## Safety
+
+"Pause video apps while the car is moving" is on by default. It covers known video apps
+(YouTube, Netflix, Disney+, etc.) when GPS speed is above ~10 mph. You can turn it off on the phone.
+
+## Known limits
+
+- Android Auto updates have broken this kind of app before; if it stops appearing, check
+  that Unknown sources is still on.
+- Pinch-zoom isn't passed through yet (tap, long scrolls and flings are).
+- Some apps that block screen capture (banking, some DRM video) show black.

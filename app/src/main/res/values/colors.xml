@@ -1,0 +1,10 @@
+<resources>
+    <color name="car_bg">#0B0C10</color>
+    <color name="car_rail">#16171D</color>
+    <color name="car_tile">#1E2027</color>
+    <color name="car_selected">#2B3A55</color>
+    <color name="car_accent">#8AB4F8</color>
+    <color name="car_text">#E8EAED</color>
+    <color name="car_text_dim">#9AA0A6</color>
+    <color name="launcher_bg">#1A73E8</color>
+</resources>

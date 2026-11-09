@@ -1,0 +1,11 @@
+<resources>
+    <!-- Phone setup screen -->
+    <style name="Theme.OpenDash" parent="Theme.Material3.DayNight" />
+
+    <!-- Car screen (rendered onto the Android Auto surface) -->
+    <style name="Theme.OpenDash.Car" parent="Theme.Material3.Dark.NoActionBar">
+        <item name="android:windowBackground">@color/car_bg</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+    </style>
+</resources>
