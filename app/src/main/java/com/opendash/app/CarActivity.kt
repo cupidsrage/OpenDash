@@ -4,11 +4,14 @@ import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
 import android.app.ActivityOptions
 import android.app.SearchManager
+import android.content.ContentValues
 import android.content.Intent
+import android.graphics.Bitmap
 import android.graphics.Path
 import android.graphics.SurfaceTexture
 import android.net.Uri
 import android.os.Bundle
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
 import android.os.SystemClock
@@ -16,6 +19,7 @@ import android.provider.MediaStore
 import android.view.Display
 import android.view.Gravity
 import android.view.MotionEvent
+import android.view.PixelCopy
 import android.view.Surface
 import android.view.TextureView
 import android.view.View
@@ -34,6 +38,7 @@ import java.util.Date
 import java.util.Locale
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.roundToInt
 
 /**
  * The car screen. Android Auto (Android 15+) shows this activity directly on
@@ -79,6 +84,7 @@ class CarActivity : AppCompatActivity() {
     private var virtualDisplayId = -1
     private var virtualSize: Pair<Int, Int>? = null
     private var pendingVirtualComponent: String? = null
+    private var virtualPkg: String? = null
     private val shizukuListener: () -> Unit = { handler.post { onShizukuChanged() } }
 
     private val projectionListener: () -> Unit = { handler.post { onProjectionChanged() } }
@@ -143,6 +149,7 @@ class CarActivity : AppCompatActivity() {
             closeRailSoon()
             true
         }
+        setupSplitZoomShot()
 
         onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
             override fun handleOnBackPressed() = goBack()
@@ -173,7 +180,7 @@ class CarActivity : AppCompatActivity() {
             override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
                 ProjectionService.instance?.detachMirror()
                 if (virtualDisplayId >= 0) {
-                    try { ShizukuBridge.service?.setSurface(null) } catch (_: Exception) {}
+                    try { ShizukuBridge.service?.setSurface(virtualDisplayId, null) } catch (_: Exception) {}
                 }
                 mirrorSurface?.release()
                 mirrorSurface = null
@@ -259,8 +266,12 @@ class CarActivity : AppCompatActivity() {
             voice.release()
             ProjectionService.instance?.detachMirror()
             releasePhone()
+            if (idB >= 0) {
+                try { ShizukuBridge.service?.releaseDisplay(idB) } catch (_: Exception) {}
+                idB = -1
+            }
             if (virtualDisplayId >= 0) {
-                try { ShizukuBridge.service?.releaseDisplay() } catch (_: Exception) {}
+                try { ShizukuBridge.service?.releaseDisplay(virtualDisplayId) } catch (_: Exception) {}
                 virtualDisplayId = -1
             }
             mirrorSurface?.release()
@@ -472,6 +483,24 @@ class CarActivity : AppCompatActivity() {
      * stay locked). Falls back to opening it on the phone and mirroring.
      */
     private fun launch(pkg: String) {
+        when (picking) {
+            Pick.LEFT -> {
+                picking = Pick.NONE
+                if (!launchVirtual(pkg)) { showBubble("Split screen needs Shizuku running on your phone"); return }
+                if (split && idB < 0 && pendingB == null) {
+                    picking = Pick.RIGHT
+                    showPage(Page.APPS)
+                    showBubble("Now pick the app for the right side")
+                }
+                return
+            }
+            Pick.RIGHT -> {
+                picking = Pick.NONE
+                launchRight(pkg)
+                return
+            }
+            Pick.NONE -> {}
+        }
         if (Prefs.directMode(this) && pkg !in Prefs.mirrorOnly(this)) {
             val intent = packageManager.getLaunchIntentForPackage(pkg)
             if (intent != null && launchOnCar(intent)) {
@@ -497,14 +526,256 @@ class CarActivity : AppCompatActivity() {
         val component = packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
             ?: return false
         Prefs.addRecent(this, pkg)
+        virtualPkg = pkg
         switchSource(Source.VIRTUAL)
-        if (virtualDisplayId >= 0) startOnVirtual(svc, component) else pendingVirtualComponent = component
+        if (virtualDisplayId >= 0) {
+            applyZoom(virtualDisplayId, virtualSize, pkg)
+            startOnVirtual(svc, component)
+        } else {
+            pendingVirtualComponent = component
+        }
         showPage(Page.MIRROR)
         return true
     }
 
-    private fun startOnVirtual(svc: IPrivileged, component: String) {
-        val displayId = virtualDisplayId
+    // ---------------------------------------------------------------- split screen
+
+    private enum class Pick { NONE, LEFT, RIGHT }
+
+    private lateinit var paneB: View
+    private lateinit var splitDivider: View
+    private lateinit var mirrorViewB: TextureView
+    private lateinit var hintB: TextView
+
+    private var split = false
+    private var picking = Pick.NONE
+    /** True when the right side was touched last (zoom and Back act on it). */
+    private var activeRight = false
+
+    private var idB = -1
+    private var sizeB: Pair<Int, Int>? = null
+    private var surfaceB: Surface? = null
+    private var pendingB: String? = null
+    private var pkgB: String? = null
+
+    @SuppressLint("ClickableViewAccessibility")
+    private fun setupSplitZoomShot() {
+        paneB = findViewById(R.id.paneB)
+        splitDivider = findViewById(R.id.splitDivider)
+        mirrorViewB = findViewById(R.id.mirrorViewB)
+        hintB = findViewById(R.id.hintB)
+
+        findViewById<View>(R.id.btnSplit).setOnClickListener { toggleSplit(); closeRailSoon() }
+        findViewById<View>(R.id.btnZoomIn).setOnClickListener { zoomBy(+0.1f); pokeRail() }
+        findViewById<View>(R.id.btnZoomOut).setOnClickListener { zoomBy(-0.1f); pokeRail() }
+        findViewById<View>(R.id.btnShot).setOnClickListener {
+            // Put the menu away first so it isn't in the picture.
+            setRail(false, animate = false)
+            handler.postDelayed({ takeScreenshot() }, 300)
+        }
+        hintB.setOnClickListener {
+            picking = Pick.RIGHT
+            showPage(Page.APPS)
+            showBubble("Pick the app for the right side")
+        }
+
+        mirrorViewB.surfaceTextureListener = object : TextureView.SurfaceTextureListener {
+            override fun onSurfaceTextureAvailable(st: SurfaceTexture, w: Int, h: Int) = attachB(st, w, h)
+            override fun onSurfaceTextureSizeChanged(st: SurfaceTexture, w: Int, h: Int) = attachB(st, w, h)
+            override fun onSurfaceTextureUpdated(st: SurfaceTexture) {}
+            override fun onSurfaceTextureDestroyed(st: SurfaceTexture): Boolean {
+                if (idB >= 0) {
+                    try { ShizukuBridge.service?.setSurface(idB, null) } catch (_: Exception) {}
+                }
+                surfaceB?.release()
+                surfaceB = null
+                return true
+            }
+        }
+        mirrorViewB.setOnTouchListener { _, e ->
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) activeRight = true
+            injectTo(idB, e)
+            true
+        }
+    }
+
+    private fun toggleSplit() {
+        if (split) { exitSplit(); return }
+        if (ShizukuBridge.service == null) {
+            showBubble("Split screen needs Shizuku running on your phone")
+            return
+        }
+        split = true
+        paneB.visibility = View.VISIBLE
+        splitDivider.visibility = View.VISIBLE
+        hintB.visibility = View.VISIBLE
+        val leftReady = source == Source.VIRTUAL && (virtualDisplayId >= 0 || pendingVirtualComponent != null)
+        picking = if (leftReady) Pick.RIGHT else Pick.LEFT
+        showPage(Page.APPS)
+        showBubble(if (leftReady) "Pick the app for the right side" else "Pick the app for the left side")
+    }
+
+    private fun exitSplit() {
+        split = false
+        picking = Pick.NONE
+        activeRight = false
+        if (idB >= 0) {
+            val svc = ShizukuBridge.service
+            val id = idB
+            if (svc != null) Thread { try { svc.releaseDisplay(id) } catch (_: Exception) {} }.start()
+        }
+        idB = -1
+        sizeB = null
+        pendingB = null
+        pkgB = null
+        paneB.visibility = View.GONE
+        splitDivider.visibility = View.GONE
+    }
+
+    private fun launchRight(pkg: String) {
+        val svc = ShizukuBridge.service
+        val component = packageManager.getLaunchIntentForPackage(pkg)?.component?.flattenToString()
+        if (svc == null || component == null) {
+            showBubble("Couldn't open that app on the right side")
+            return
+        }
+        if (!split) toggleSplit()
+        picking = Pick.NONE
+        Prefs.addRecent(this, pkg)
+        pkgB = pkg
+        activeRight = true
+        if (idB >= 0) {
+            applyZoom(idB, sizeB, pkg)
+            startOnVirtual(svc, component, idB)
+        } else {
+            pendingB = component
+            mirrorViewB.surfaceTexture?.let { attachB(it, mirrorViewB.width, mirrorViewB.height) }
+        }
+        showPage(Page.MIRROR)
+    }
+
+    /** Point the right-hand screen at its surface, creating it once there's an app to show. */
+    private fun attachB(st: SurfaceTexture, w: Int, h: Int) {
+        val svc = ShizukuBridge.service ?: return
+        if (w <= 0 || h <= 0) return
+        if (idB < 0 && pendingB == null) return
+        st.setDefaultBufferSize(w, h)
+        val old = surfaceB
+        val s = Surface(st)
+        surfaceB = s
+        try {
+            if (idB < 0) {
+                idB = svc.createDisplay(s, w, h, dpiFor(pkgB))
+                sizeB = w to h
+            } else {
+                if (sizeB != (w to h)) {
+                    svc.resizeDisplay(idB, w, h, dpiFor(pkgB))
+                    sizeB = w to h
+                }
+                svc.setSurface(idB, s)
+            }
+        } catch (_: Exception) {
+            idB = -1
+        }
+        old?.release()
+        if (idB < 0) {
+            if (pendingB != null) showBubble("Couldn't start the right side")
+            pendingB = null
+            return
+        }
+        hintB.visibility = View.GONE
+        pendingB?.let { comp ->
+            pendingB = null
+            startOnVirtual(svc, comp, idB)
+        }
+    }
+
+    private fun injectTo(displayId: Int, e: MotionEvent) {
+        val svc = ShizukuBridge.service ?: return
+        if (displayId < 0 || isBlocked) return
+        val ev = MotionEvent.obtain(e)
+        try { svc.injectMotion(ev, displayId) } catch (_: Exception) {}
+        ev.recycle()
+    }
+
+    // ---------------------------------------------------------------- zoom buttons
+
+    private fun zoomBy(delta: Float) {
+        val right = split && activeRight && idB >= 0
+        val pkg = if (right) pkgB else virtualPkg
+        val id = if (right) idB else virtualDisplayId
+        val size = if (right) sizeB else virtualSize
+        if (page != Page.MIRROR || source != Source.VIRTUAL || pkg == null || id < 0) {
+            showBubble("Zoom works on apps running on OpenDash's screen")
+            return
+        }
+        val z = ((Prefs.zoom(this, pkg) + delta) * 10).roundToInt() / 10f
+        val clamped = z.coerceIn(0.5f, 2.0f)
+        Prefs.setZoom(this, pkg, clamped)
+        applyZoom(id, size, pkg)
+        showBubble("Size ${(clamped * 100).roundToInt()}%")
+    }
+
+    // ---------------------------------------------------------------- screenshot
+
+    /** Saves what's on OpenDash's car screen to Pictures/OpenDash on the phone. */
+    private fun takeScreenshot() {
+        val decor = window.decorView
+        if (decor.width <= 0 || decor.height <= 0) return
+        val bmp = Bitmap.createBitmap(decor.width, decor.height, Bitmap.Config.ARGB_8888)
+        try {
+            PixelCopy.request(window, bmp, { result ->
+                if (result == PixelCopy.SUCCESS) saveScreenshot(bmp)
+                else showBubble("Couldn't take a screenshot")
+            }, handler)
+        } catch (_: Exception) {
+            showBubble("Couldn't take a screenshot")
+        }
+    }
+
+    private fun saveScreenshot(bmp: Bitmap) {
+        Thread {
+            val ok = try {
+                val values = ContentValues().apply {
+                    put(MediaStore.Images.Media.DISPLAY_NAME, "OpenDash_${System.currentTimeMillis()}.png")
+                    put(MediaStore.Images.Media.MIME_TYPE, "image/png")
+                    put(MediaStore.Images.Media.RELATIVE_PATH, Environment.DIRECTORY_PICTURES + "/OpenDash")
+                    put(MediaStore.Images.Media.IS_PENDING, 1)
+                }
+                val uri = contentResolver.insert(MediaStore.Images.Media.EXTERNAL_CONTENT_URI, values)
+                    ?: throw IllegalStateException("no gallery entry")
+                contentResolver.openOutputStream(uri)!!.use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
+                values.clear()
+                values.put(MediaStore.Images.Media.IS_PENDING, 0)
+                contentResolver.update(uri, values, null, null)
+                true
+            } catch (_: Exception) {
+                false
+            }
+            bmp.recycle()
+            handler.post {
+                showBubble(if (ok) "Screenshot saved to Pictures/OpenDash" else "Couldn't save the screenshot")
+            }
+        }.start()
+    }
+
+    // ---------------------------------------------------------------- zoom per app
+
+    /** Screen density for an app: the car's own density times the size saved for that app. */
+    private fun dpiFor(pkg: String?): Int {
+        val base = resources.displayMetrics.densityDpi
+        val zoom = if (pkg == null) 1f else Prefs.zoom(this, pkg)
+        return (base * zoom).toInt().coerceAtLeast(80)
+    }
+
+    private fun applyZoom(displayId: Int, size: Pair<Int, Int>?, pkg: String?) {
+        val svc = ShizukuBridge.service ?: return
+        val (w, h) = size ?: return
+        if (displayId < 0) return
+        try { svc.resizeDisplay(displayId, w, h, dpiFor(pkg)) } catch (_: Exception) {}
+    }
+
+    private fun startOnVirtual(svc: IPrivileged, component: String, displayId: Int = virtualDisplayId) {
         holdPhoneAwake(true)
         Thread {
             val ok = try { svc.startApp(component, displayId) } catch (_: Exception) { false }
@@ -562,8 +833,11 @@ class CarActivity : AppCompatActivity() {
     private fun switchSource(new: Source) {
         if (new == source) return
         if (source == Source.PHONE) ProjectionService.instance?.detachMirror()
-        // Mirroring needs the real phone screen on.
-        if (new == Source.PHONE) releasePhone()
+        // Mirroring needs the real phone screen on, and is single-screen.
+        if (new == Source.PHONE) {
+            releasePhone()
+            if (split) exitSplit()
+        }
         source = new
         updateMirrorHint()
         fitMirror()
@@ -577,6 +851,9 @@ class CarActivity : AppCompatActivity() {
             holdPhoneAwake(false)
             virtualDisplayId = -1
             virtualSize = null
+            idB = -1
+            sizeB = null
+            if (split) exitSplit()
             if (source == Source.VIRTUAL) showBubble("Shizuku stopped. Open Shizuku on your phone to restart it")
         }
         updateMirrorHint()
@@ -609,6 +886,14 @@ class CarActivity : AppCompatActivity() {
     }
 
     private fun goBack() {
+        if (page == Page.MIRROR && split && activeRight && idB >= 0) {
+            val svc = ShizukuBridge.service
+            val id = idB
+            if (svc != null) {
+                Thread { try { svc.pressBack(id) } catch (_: Exception) {} }.start()
+                return
+            }
+        }
         if (page == Page.MIRROR && source == Source.VIRTUAL && virtualDisplayId >= 0) {
             val svc = ShizukuBridge.service
             val id = virtualDisplayId
@@ -710,17 +995,17 @@ class CarActivity : AppCompatActivity() {
         val old = mirrorSurface
         val s = Surface(st)
         mirrorSurface = s
-        val dpi = resources.displayMetrics.densityDpi
+        val dpi = dpiFor(virtualPkg)
         try {
             if (virtualDisplayId < 0) {
                 virtualDisplayId = svc.createDisplay(s, w, h, dpi)
                 virtualSize = w to h
             } else {
                 if (virtualSize != (w to h)) {
-                    svc.resizeDisplay(w, h, dpi)
+                    svc.resizeDisplay(virtualDisplayId, w, h, dpi)
                     virtualSize = w to h
                 }
-                svc.setSurface(s)
+                svc.setSurface(virtualDisplayId, s)
             }
         } catch (e: Exception) {
             virtualDisplayId = -1
@@ -776,6 +1061,7 @@ class CarActivity : AppCompatActivity() {
 
         @SuppressLint("ClickableViewAccessibility")
         override fun onTouch(v: View, e: MotionEvent): Boolean {
+            if (e.actionMasked == MotionEvent.ACTION_DOWN) activeRight = false
             if (source == Source.VIRTUAL) {
                 // OpenDash's own screen: pass every touch through live, 1:1.
                 val svc = ShizukuBridge.service

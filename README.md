@@ -39,6 +39,14 @@ Open this folder, let Gradle sync, then *Build → Build APK(s)*.
 
 Long-press the phone button in the car menu to see the phone's own screen instead.
 
+### Car menu extras (with Shizuku)
+- **Split screen**: two apps side by side. Tap the split button, pick the left app, then the right.
+  Tap it again to go back to one app.
+- **A− / A+**: make the app you last touched smaller or bigger. OpenDash remembers the size per app.
+- **Camera**: saves a picture of OpenDash's car screen to Pictures/OpenDash on the phone.
+- **Auto-open**: OpenDash appears on the car screen by itself when Android Auto connects
+  (switch under Options on the phone).
+
 ### Setting up Shizuku
 Install [Shizuku](https://play.google.com/store/apps/details?id=moe.shizuku.privileged.api),
 turn on Developer options, then in Shizuku tap **Start** under *Start via Wireless debugging*

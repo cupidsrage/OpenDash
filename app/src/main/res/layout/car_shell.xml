@@ -114,11 +114,59 @@
             android:background="#000000"
             android:visibility="gone">
 
-            <TextureView
-                android:id="@+id/mirrorView"
+            <LinearLayout
+                android:id="@+id/screens"
                 android:layout_width="match_parent"
                 android:layout_height="match_parent"
-                android:layout_gravity="center" />
+                android:baselineAligned="false"
+                android:orientation="horizontal">
+
+                <FrameLayout
+                    android:id="@+id/paneA"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1">
+
+                    <TextureView
+                        android:id="@+id/mirrorView"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent"
+                        android:layout_gravity="center" />
+                </FrameLayout>
+
+                <View
+                    android:id="@+id/splitDivider"
+                    android:layout_width="4dp"
+                    android:layout_height="match_parent"
+                    android:background="#33FFFFFF"
+                    android:visibility="gone" />
+
+                <FrameLayout
+                    android:id="@+id/paneB"
+                    android:layout_width="0dp"
+                    android:layout_height="match_parent"
+                    android:layout_weight="1"
+                    android:visibility="gone">
+
+                    <TextureView
+                        android:id="@+id/mirrorViewB"
+                        android:layout_width="match_parent"
+                        android:layout_height="match_parent" />
+
+                    <TextView
+                        android:id="@+id/hintB"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_gravity="center"
+                        android:background="@drawable/card_bg"
+                        android:fontFamily="sans-serif-medium"
+                        android:gravity="center"
+                        android:padding="20dp"
+                        android:text="Tap to pick an app for this side"
+                        android:textColor="@color/car_text"
+                        android:textSize="16sp" />
+                </FrameLayout>
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/mirrorHint"
@@ -204,28 +252,71 @@
             android:textColor="@color/car_text"
             android:textSize="16sp" />
 
-        <ImageButton
-            android:id="@+id/btnHome"
-            style="@style/RailButton"
-            android:contentDescription="Home"
-            android:src="@drawable/ic_home" />
-
-        <ImageButton
-            android:id="@+id/btnApps"
-            style="@style/RailButton"
-            android:contentDescription="All apps"
-            android:src="@drawable/ic_apps" />
-
-        <ImageButton
-            android:id="@+id/btnScreen"
-            style="@style/RailButton"
-            android:contentDescription="Phone screen"
-            android:src="@drawable/ic_phone_screen" />
-
-        <View
-            android:layout_width="1dp"
+        <ScrollView
+            android:layout_width="match_parent"
             android:layout_height="0dp"
-            android:layout_weight="1" />
+            android:layout_weight="1"
+            android:overScrollMode="never"
+            android:scrollbars="none">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:gravity="center_horizontal"
+                android:orientation="vertical">
+
+                <ImageButton
+                    android:id="@+id/btnHome"
+                    style="@style/RailButton"
+                    android:contentDescription="Home"
+                    android:src="@drawable/ic_home" />
+
+                <ImageButton
+                    android:id="@+id/btnApps"
+                    style="@style/RailButton"
+                    android:contentDescription="All apps"
+                    android:src="@drawable/ic_apps" />
+
+                <ImageButton
+                    android:id="@+id/btnScreen"
+                    style="@style/RailButton"
+                    android:contentDescription="Phone screen"
+                    android:src="@drawable/ic_phone_screen" />
+
+                <ImageButton
+                    android:id="@+id/btnSplit"
+                    style="@style/RailButton"
+                    android:contentDescription="Split screen"
+                    android:src="@drawable/ic_split" />
+
+                <LinearLayout
+                    android:id="@+id/zoomRow"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/btnZoomOut"
+                        style="@style/ZoomButton"
+                        android:contentDescription="Make the app smaller"
+                        android:text="A−" />
+
+                    <TextView
+                        android:id="@+id/btnZoomIn"
+                        style="@style/ZoomButton"
+                        android:layout_marginStart="4dp"
+                        android:contentDescription="Make the app bigger"
+                        android:text="A+" />
+                </LinearLayout>
+
+                <ImageButton
+                    android:id="@+id/btnShot"
+                    style="@style/RailButton"
+                    android:contentDescription="Save a screenshot of the car screen"
+                    android:src="@drawable/ic_camera" />
+            </LinearLayout>
+        </ScrollView>
 
         <ImageButton
             android:id="@+id/btnBack"

@@ -136,6 +136,10 @@ class MainActivity : AppCompatActivity() {
         shizukuStep()
 
         header("Options")
+        toggle("Open OpenDash on the car screen automatically when Android Auto connects (Shizuku)", Prefs.autoOpen(this)) {
+            Prefs.setAutoOpen(this, it)
+            ShizukuBridge.updateAutoOpen()
+        }
         toggle("Turn the phone screen off while apps run on OpenDash's screen (Shizuku)", Prefs.phoneScreenOff(this)) {
             Prefs.setPhoneScreenOff(this, it)
         }
