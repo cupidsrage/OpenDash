@@ -22,6 +22,14 @@ object Prefs {
     fun phoneScreenOff(c: Context) = sp(c).getBoolean("phone_screen_off", true)
     fun setPhoneScreenOff(c: Context, v: Boolean) = sp(c).edit().putBoolean("phone_screen_off", v).apply()
 
+    /** Put OpenDash on the car screen as soon as Android Auto connects (needs Shizuku). */
+    fun autoOpen(c: Context) = sp(c).getBoolean("auto_open", true)
+    fun setAutoOpen(c: Context, v: Boolean) = sp(c).edit().putBoolean("auto_open", v).apply()
+
+    /** Per-app size on OpenDash's screen (1.0 = normal). */
+    fun zoom(c: Context, pkg: String) = sp(c).getFloat("zoom_$pkg", 1.0f)
+    fun setZoom(c: Context, pkg: String, v: Float) = sp(c).edit().putFloat("zoom_$pkg", v).apply()
+
     /** Open apps on the car display instead of mirroring the phone. */
     fun directMode(c: Context) = sp(c).getBoolean("direct", true)
     fun setDirectMode(c: Context, v: Boolean) = sp(c).edit().putBoolean("direct", v).apply()

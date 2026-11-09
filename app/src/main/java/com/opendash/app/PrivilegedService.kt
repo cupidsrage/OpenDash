@@ -7,8 +7,11 @@ import android.content.ContextWrapper
 import android.hardware.display.DisplayManager
 import android.hardware.display.VirtualDisplay
 import android.os.Build
+import android.os.Handler
+import android.os.HandlerThread
 import android.os.IBinder
 import android.os.SystemClock
+import android.view.Display
 import android.view.InputDevice
 import android.view.InputEvent
 import android.view.KeyEvent
@@ -19,10 +22,11 @@ import kotlin.system.exitProcess
 /**
  * Runs in its own process with shell-level access, started by Shizuku.
  *
- * It creates OpenDash's private screen (a virtual display that draws straight
- * into the car-screen surface), starts apps on it, and injects touches. The
- * display is "always unlocked", so apps keep running with the phone locked
- * and its screen off. Same technique as scrcpy's --new-display.
+ * It creates OpenDash's private screens (virtual displays that draw straight
+ * into the car-screen surface), starts apps on them, and injects touches. The
+ * displays are "always unlocked", so apps keep running with the phone locked.
+ * Same technique as scrcpy's --new-display. It also stays running in the
+ * background to open OpenDash on the car as soon as Android Auto connects.
  */
 class PrivilegedService() : IPrivileged.Stub() {
 
@@ -33,16 +37,16 @@ class PrivilegedService() : IPrivileged.Stub() {
         baseContext = context
     }
 
-    private var display: VirtualDisplay? = null
+    // OpenDash's private screens, by display id.
+    private val displays = HashMap<Int, VirtualDisplay>()
+    private val dm: DisplayManager by lazy { shellDisplayManager() }
 
     override fun destroy() {
-        setPhoneScreen(true)
-        releaseDisplay()
+        releaseAll()
         exitProcess(0)
     }
 
     override fun createDisplay(surface: Surface?, width: Int, height: Int, dpi: Int): Int {
-        releaseDisplay()
         var flags = PUBLIC or PRESENTATION or OWN_CONTENT_ONLY or SUPPORTS_TOUCH or
             ROTATES_WITH_CONTENT or DESTROY_CONTENT_ON_REMOVAL or SHOULD_SHOW_SYSTEM_DECORATIONS
         if (Build.VERSION.SDK_INT >= 33) {
@@ -51,24 +55,30 @@ class PrivilegedService() : IPrivileged.Stub() {
         if (Build.VERSION.SDK_INT >= 34) {
             flags = flags or OWN_FOCUS or DEVICE_DISPLAY_GROUP
         }
-        val vd = shellDisplayManager().createVirtualDisplay(
-            "OpenDash", width, height, dpi, surface, flags
-        ) ?: return -1
-        display = vd
-        return vd.display.displayId
+        val vd = dm.createVirtualDisplay("OpenDash", width, height, dpi, surface, flags) ?: return -1
+        val id = vd.display.displayId
+        synchronized(displays) { displays[id] = vd }
+        return id
     }
 
-    override fun setSurface(surface: Surface?) {
-        display?.surface = surface
+    private fun display(id: Int): VirtualDisplay? = synchronized(displays) { displays[id] }
+
+    override fun setSurface(displayId: Int, surface: Surface?) {
+        display(displayId)?.surface = surface
     }
 
-    override fun resizeDisplay(width: Int, height: Int, dpi: Int) {
-        display?.resize(width, height, dpi)
+    override fun resizeDisplay(displayId: Int, width: Int, height: Int, dpi: Int) {
+        display(displayId)?.resize(width, height, dpi)
     }
 
-    override fun releaseDisplay() {
-        display?.release()
-        display = null
+    override fun releaseDisplay(displayId: Int) {
+        synchronized(displays) { displays.remove(displayId) }?.release()
+    }
+
+    private fun releaseAll() {
+        val all = synchronized(displays) { displays.values.toList().also { displays.clear() } }
+        all.forEach { it.release() }
+        setPhoneScreen(true)
     }
 
     override fun startApp(component: String, displayId: Int): Boolean {
@@ -84,6 +94,57 @@ class PrivilegedService() : IPrivileged.Stub() {
         } catch (e: Exception) {
             false
         }
+    }
+
+    // ------------------------------------------------------------ safety net
+
+    override fun attachClient(token: IBinder?) {
+        // If the car UI's process dies, don't leave screens running or the phone panel off.
+        try { token?.linkToDeath({ releaseAll() }, 0) } catch (_: Exception) { releaseAll() }
+    }
+
+    // ------------------------------------------------------------ auto-open in the car
+
+    @Volatile
+    private var autoOpenComponent: String? = null
+    private var watching = false
+    private val watcher: Handler by lazy {
+        Handler(HandlerThread("OpenDashWatcher").apply { start() }.looper)
+    }
+
+    override fun setAutoOpen(component: String?, enabled: Boolean) {
+        autoOpenComponent = if (enabled) component else null
+        if (enabled && !watching) {
+            watching = true
+            dm.registerDisplayListener(displayWatcher, watcher)
+        }
+    }
+
+    private val displayWatcher = object : DisplayManager.DisplayListener {
+        override fun onDisplayAdded(displayId: Int) {
+            if (autoOpenComponent == null) return
+            // Give Android Auto a moment to finish setting its screen up.
+            watcher.postDelayed({
+                val comp = autoOpenComponent
+                if (comp != null && isAndroidAutoDisplay(displayId)) startApp(comp, displayId)
+            }, 2500)
+        }
+
+        override fun onDisplayRemoved(displayId: Int) {}
+        override fun onDisplayChanged(displayId: Int) {}
+    }
+
+    private fun isAndroidAutoDisplay(displayId: Int): Boolean {
+        if (display(displayId) != null) return false
+        val d = dm.getDisplay(displayId) ?: return false
+        val owner = try {
+            Display::class.java.getMethod("getOwnerPackageName").invoke(d) as String?
+        } catch (_: Exception) {
+            null
+        }
+        if (owner != null) return owner == ANDROID_AUTO_PACKAGE
+        val name = d.name.lowercase()
+        return "android auto" in name || "projection" in name || "gearhead" in name
     }
 
     override fun injectMotion(event: MotionEvent, displayId: Int): Boolean {
@@ -204,6 +265,7 @@ class PrivilegedService() : IPrivileged.Stub() {
     companion object {
         private const val SHELL_PACKAGE = "com.android.shell"
         private const val SHELL_UID = 2000
+        private const val ANDROID_AUTO_PACKAGE = "com.google.android.projection.gearhead"
         private const val POWER_MODE_OFF = 0
         private const val POWER_MODE_NORMAL = 2
 

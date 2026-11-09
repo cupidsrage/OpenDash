@@ -73,7 +73,8 @@ object ShizukuBridge {
 
     private val args by lazy {
         Shizuku.UserServiceArgs(ComponentName(app.packageName, PrivilegedService::class.java.name))
-            .daemon(false)
+            // Keeps running in the background so it can open OpenDash when the car connects.
+            .daemon(true)
             .processNameSuffix("privileged")
             .debuggable(BuildConfig.DEBUG)
             .version(BuildConfig.VERSION_CODE)
@@ -83,6 +84,12 @@ object ShizukuBridge {
         override fun onServiceConnected(name: ComponentName?, binder: IBinder?) {
             binding = false
             service = if (binder != null && binder.pingBinder()) IPrivileged.Stub.asInterface(binder) else null
+            service?.let { svc ->
+                try {
+                    svc.attachClient(clientToken)
+                    svc.setAutoOpen("${app.packageName}/${CarActivity::class.java.name}", Prefs.autoOpen(app))
+                } catch (_: Exception) {}
+            }
             notifyListeners()
         }
 
@@ -91,6 +98,15 @@ object ShizukuBridge {
             binding = false
             notifyListeners()
         }
+    }
+
+    /** Lives as long as this app process; the service watches it to clean up if we die. */
+    private val clientToken = android.os.Binder()
+
+    fun updateAutoOpen() {
+        try {
+            service?.setAutoOpen("${app.packageName}/${CarActivity::class.java.name}", Prefs.autoOpen(app))
+        } catch (_: Exception) {}
     }
 
     private fun bind() {
