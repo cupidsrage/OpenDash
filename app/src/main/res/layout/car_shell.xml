@@ -3,64 +3,46 @@
     android:id="@+id/root"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/car_bg"
+    android:background="@drawable/car_bg_gradient"
     android:orientation="horizontal">
 
-    <!-- Left rail, like Android Auto's taskbar -->
+    <!-- Left rail -->
     <LinearLayout
         android:id="@+id/rail"
-        android:layout_width="88dp"
+        android:layout_width="76dp"
         android:layout_height="match_parent"
-        android:background="@color/car_rail"
+        android:background="@drawable/rail_bg"
         android:gravity="center_horizontal"
         android:orientation="vertical"
-        android:paddingTop="12dp"
-        android:paddingBottom="12dp">
+        android:paddingTop="14dp"
+        android:paddingBottom="14dp">
 
         <TextView
             android:id="@+id/railClock"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:layout_marginBottom="8dp"
+            android:layout_marginBottom="10dp"
+            android:fontFamily="sans-serif-medium"
             android:textColor="@color/car_text"
-            android:textSize="18sp"
-            android:textStyle="bold" />
+            android:textSize="16sp" />
 
         <ImageButton
             android:id="@+id/btnHome"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/rail_button_bg"
+            style="@style/RailButton"
             android:contentDescription="Home"
-            android:padding="16dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_home"
-            android:tint="@color/car_text" />
+            android:src="@drawable/ic_home" />
 
         <ImageButton
             android:id="@+id/btnApps"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/rail_button_bg"
+            style="@style/RailButton"
             android:contentDescription="All apps"
-            android:padding="16dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_apps"
-            android:tint="@color/car_text" />
+            android:src="@drawable/ic_apps" />
 
         <ImageButton
             android:id="@+id/btnScreen"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
-            android:layout_marginTop="6dp"
-            android:background="@drawable/rail_button_bg"
+            style="@style/RailButton"
             android:contentDescription="Phone screen"
-            android:padding="16dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_phone_screen"
-            android:tint="@color/car_text" />
+            android:src="@drawable/ic_phone_screen" />
 
         <View
             android:layout_width="1dp"
@@ -69,26 +51,22 @@
 
         <ImageButton
             android:id="@+id/btnBack"
-            android:layout_width="60dp"
-            android:layout_height="60dp"
+            style="@style/RailButton"
             android:layout_marginBottom="10dp"
-            android:background="@drawable/rail_button_bg"
             android:contentDescription="Back"
-            android:padding="16dp"
-            android:scaleType="fitCenter"
-            android:src="@drawable/ic_back"
-            android:tint="@color/car_text" />
+            android:src="@drawable/ic_back" />
 
         <ImageButton
             android:id="@+id/btnMic"
-            android:layout_width="64dp"
-            android:layout_height="64dp"
+            android:layout_width="56dp"
+            android:layout_height="56dp"
             android:background="@drawable/mic_button_bg"
             android:contentDescription="Voice"
-            android:padding="16dp"
+            android:elevation="4dp"
+            android:padding="15dp"
             android:scaleType="fitCenter"
             android:src="@drawable/ic_mic"
-            android:tint="#202124" />
+            android:tint="#0B1A33" />
     </LinearLayout>
 
     <FrameLayout
@@ -97,50 +75,89 @@
         android:layout_height="match_parent"
         android:layout_weight="1">
 
-        <!-- HOME -->
+        <!-- HOME: info card on the left, app tiles on the right -->
         <LinearLayout
             android:id="@+id/pageHome"
             android:layout_width="match_parent"
             android:layout_height="match_parent"
-            android:orientation="vertical"
-            android:padding="28dp">
+            android:baselineAligned="false"
+            android:orientation="horizontal"
+            android:padding="16dp">
 
-            <TextView
-                android:id="@+id/homeClock"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/car_text"
-                android:textSize="64sp" />
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_marginEnd="16dp"
+                android:layout_weight="0.38"
+                android:background="@drawable/card_bg"
+                android:gravity="center_vertical"
+                android:orientation="vertical"
+                android:padding="24dp">
 
-            <TextView
-                android:id="@+id/homeDate"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:textColor="@color/car_text_dim"
-                android:textSize="22sp" />
+                <TextView
+                    android:id="@+id/homeClock"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-light"
+                    android:includeFontPadding="false"
+                    android:textColor="@color/car_text"
+                    android:textSize="56sp" />
 
-            <TextView
-                android:id="@+id/homeStatus"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="10dp"
-                android:textColor="@color/car_accent"
-                android:textSize="18sp" />
+                <TextView
+                    android:id="@+id/homeDate"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:textColor="@color/car_text_dim"
+                    android:textSize="17sp" />
 
-            <TextView
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:layout_marginTop="24dp"
-                android:layout_marginBottom="10dp"
-                android:text="Recent"
-                android:textColor="@color/car_text_dim"
-                android:textSize="18sp" />
+                <TextView
+                    android:id="@+id/homeStatus"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="18dp"
+                    android:textColor="@color/car_accent"
+                    android:textSize="15sp"
+                    android:visibility="gone" />
 
-            <androidx.recyclerview.widget.RecyclerView
-                android:id="@+id/recentRow"
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:overScrollMode="never" />
+                <View
+                    android:layout_width="1dp"
+                    android:layout_height="0dp"
+                    android:layout_weight="1" />
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="Say “open…”, “navigate to…” or “play…”"
+                    android:textColor="@color/car_text_dim"
+                    android:textSize="13sp" />
+            </LinearLayout>
+
+            <LinearLayout
+                android:layout_width="0dp"
+                android:layout_height="match_parent"
+                android:layout_weight="0.62"
+                android:orientation="vertical">
+
+                <TextView
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="6dp"
+                    android:layout_marginBottom="6dp"
+                    android:fontFamily="sans-serif-medium"
+                    android:text="Recent"
+                    android:textColor="@color/car_text_dim"
+                    android:textSize="14sp" />
+
+                <androidx.recyclerview.widget.RecyclerView
+                    android:id="@+id/recentRow"
+                    android:layout_width="match_parent"
+                    android:layout_height="0dp"
+                    android:layout_weight="1"
+                    android:overScrollMode="never" />
+            </LinearLayout>
         </LinearLayout>
 
         <!-- ALL APPS -->
@@ -150,7 +167,8 @@
             android:layout_height="match_parent"
             android:clipToPadding="false"
             android:overScrollMode="never"
-            android:padding="20dp"
+            android:padding="12dp"
+            android:scrollbars="none"
             android:visibility="gone" />
 
         <!-- PHONE SCREEN (mirror) -->
@@ -172,11 +190,16 @@
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
                 android:layout_gravity="center"
+                android:background="@drawable/card_bg"
+                android:fontFamily="sans-serif-medium"
                 android:gravity="center"
-                android:padding="24dp"
-                android:text="Tap “Start now” on your phone to show it here"
+                android:paddingStart="32dp"
+                android:paddingTop="22dp"
+                android:paddingEnd="32dp"
+                android:paddingBottom="22dp"
+                android:text="Tap here, then “Start now” on your phone to show it here"
                 android:textColor="@color/car_text"
-                android:textSize="22sp" />
+                android:textSize="18sp" />
 
             <LinearLayout
                 android:id="@+id/drivingBlock"
@@ -190,9 +213,10 @@
                 <TextView
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
+                    android:fontFamily="sans-serif-medium"
                     android:text="Video paused while driving"
                     android:textColor="@color/car_text"
-                    android:textSize="28sp" />
+                    android:textSize="24sp" />
 
                 <TextView
                     android:layout_width="wrap_content"
@@ -200,25 +224,26 @@
                     android:layout_marginTop="8dp"
                     android:text="It comes back when the car stops"
                     android:textColor="@color/car_text_dim"
-                    android:textSize="18sp" />
+                    android:textSize="16sp" />
             </LinearLayout>
         </FrameLayout>
 
-        <!-- Voice / status bubble -->
         <TextView
             android:id="@+id/bubble"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="bottom|center_horizontal"
-            android:layout_marginBottom="24dp"
+            android:layout_marginBottom="20dp"
             android:background="@drawable/bubble_bg"
-            android:maxWidth="640dp"
-            android:paddingStart="28dp"
-            android:paddingTop="14dp"
-            android:paddingEnd="28dp"
-            android:paddingBottom="14dp"
+            android:elevation="6dp"
+            android:fontFamily="sans-serif-medium"
+            android:maxWidth="560dp"
+            android:paddingStart="24dp"
+            android:paddingTop="12dp"
+            android:paddingEnd="24dp"
+            android:paddingBottom="12dp"
             android:textColor="@color/car_text"
-            android:textSize="20sp"
+            android:textSize="17sp"
             android:visibility="gone" />
     </FrameLayout>
 </LinearLayout>

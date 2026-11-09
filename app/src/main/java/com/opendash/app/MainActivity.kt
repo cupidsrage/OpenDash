@@ -125,8 +125,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         step(
-            "6. Keep the phone unlocked in the car",
-            "A locked phone shows its lock screen on the car display. Turn on Smart Lock / Extend Unlock with your car's Bluetooth as a trusted device.",
+            "6. Keep the phone unlocked in the car (for mirrored apps)",
+            "Only needed for apps that mirror your phone. Settings → Lock screen and AOD → Extend Unlock → Trusted devices → add your car's Bluetooth.",
             null,
             buttonLabel = "Open security settings"
         ) {
@@ -134,6 +134,14 @@ class MainActivity : AppCompatActivity() {
         }
 
         header("Options")
+        toggle("Open apps directly on the car screen (phone can stay locked)", Prefs.directMode(this)) {
+            Prefs.setDirectMode(this, it)
+        }
+        val mirrorOnly = Prefs.mirrorOnly(this)
+        if (mirrorOnly.isNotEmpty()) {
+            text("${mirrorOnly.size} app(s) couldn't run directly and will mirror your phone instead.", 13f)
+            button("Retry those apps directly") { Prefs.clearMirrorOnly(this); render() }
+        }
         toggle("Keep phone in landscape while connected", Prefs.forceLandscape(this)) {
             Prefs.setForceLandscape(this, it)
         }

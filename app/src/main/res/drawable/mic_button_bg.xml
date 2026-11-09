@@ -1,4 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="oval">
-    <solid android:color="@color/car_accent" />
-</shape>
+<ripple xmlns:android="http://schemas.android.com/apk/res/android" android:color="#55FFFFFF">
+    <item>
+        <shape android:shape="oval">
+            <gradient android:angle="315" android:startColor="#A8C7FA" android:endColor="#7BA7F0" />
+        </shape>
+    </item>
+</ripple>

@@ -2,6 +2,7 @@ package com.opendash.app
 
 import android.accessibilityservice.GestureDescription
 import android.annotation.SuppressLint
+import android.app.ActivityOptions
 import android.app.SearchManager
 import android.content.Intent
 import android.graphics.Path
@@ -10,6 +11,7 @@ import android.net.Uri
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.MediaStore
 import android.view.Display
 import android.view.Gravity
@@ -25,7 +27,6 @@ import androidx.appcompat.app.AppCompatActivity
 import androidx.core.view.ViewCompat
 import androidx.core.view.WindowInsetsCompat
 import androidx.recyclerview.widget.GridLayoutManager
-import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import java.text.SimpleDateFormat
 import java.util.Date
@@ -60,7 +61,7 @@ class CarActivity : AppCompatActivity() {
     private lateinit var drivingBlock: View
     private lateinit var bubble: TextView
 
-    private val recentAdapter = AppAdapter(fillWidth = false) { launch(it.packageName) }
+    private val recentAdapter = AppAdapter(fillWidth = true) { launch(it.packageName) }
     private val gridAdapter = AppAdapter(fillWidth = true) { launch(it.packageName) }
 
     private lateinit var voice: VoiceController
@@ -123,14 +124,20 @@ class CarActivity : AppCompatActivity() {
             override fun handleOnBackPressed() = goBack()
         })
 
-        recentRow.layoutManager = LinearLayoutManager(this, RecyclerView.HORIZONTAL, false)
+        val homeGrid = GridLayoutManager(this, 4)
+        recentRow.layoutManager = homeGrid
         recentRow.adapter = recentAdapter
+        recentRow.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
+            val tile = (114 * resources.displayMetrics.density).toInt()
+            val span = max(2, v.width / tile)
+            if (homeGrid.spanCount != span) handler.post { homeGrid.spanCount = span }
+        }
 
         val grid = GridLayoutManager(this, 5)
         pageApps.layoutManager = grid
         pageApps.adapter = gridAdapter
         pageApps.addOnLayoutChangeListener { v, _, _, _, _, _, _, _, _ ->
-            val tile = (132 * resources.displayMetrics.density).toInt()
+            val tile = (114 * resources.displayMetrics.density).toInt()
             val span = max(3, (v.width - v.paddingLeft - v.paddingRight) / tile)
             if (grid.spanCount != span) handler.post { grid.spanCount = span }
         }
@@ -165,9 +172,22 @@ class CarActivity : AppCompatActivity() {
 
         showPage(Page.HOME)
 
-        // The car just connected and opened us: get screen sharing going right away
-        // so the phone prompt is already waiting when you reach for an app.
-        ProjectionService.requestStart(this)
+        // Mirroring mode: ask for screen sharing right away so the phone prompt is
+        // already waiting. Direct mode only asks when an app actually needs mirroring.
+        if (!Prefs.directMode(this)) ProjectionService.requestStart(this)
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (!onCarDisplay) return
+        val pkg = pendingDirectPkg ?: return
+        pendingDirectPkg = null
+        if (SystemClock.uptimeMillis() - pendingDirectAt < 4000) {
+            // We came straight back: Android Auto closed the app, so it only works mirrored.
+            Prefs.addMirrorOnly(this, pkg)
+            showBubble("That app can't run on the car screen directly. Showing your phone instead")
+            if (apps.launch(pkg)) showPage(Page.MIRROR)
+        }
     }
 
     @Suppress("DEPRECATION")
@@ -259,6 +279,7 @@ class CarActivity : AppCompatActivity() {
     private fun onProjectionChanged() {
         val active = ProjectionService.isActive
         homeStatus.text = when {
+            Prefs.directMode(this) && page != Page.MIRROR -> ""
             !TouchInjectorService.isEnabled(this) -> "Turn on OpenDash in Accessibility to control apps from here"
             !active -> "Tap “Start now” on your phone to share its screen"
             else -> ""
@@ -271,8 +292,41 @@ class CarActivity : AppCompatActivity() {
 
     // ---------------------------------------------------------------- launching
 
+    private var pendingDirectPkg: String? = null
+    private var pendingDirectAt = 0L
+
+    /**
+     * Direct mode: open the app on the car display itself (no mirroring, phone can
+     * stay locked). Falls back to opening it on the phone and mirroring.
+     */
     private fun launch(pkg: String) {
+        if (Prefs.directMode(this) && pkg !in Prefs.mirrorOnly(this)) {
+            val intent = packageManager.getLaunchIntentForPackage(pkg)
+            if (intent != null && launchOnCar(intent)) {
+                Prefs.addRecent(this, pkg)
+                pendingDirectPkg = pkg
+                pendingDirectAt = SystemClock.uptimeMillis()
+                return
+            }
+            Prefs.addMirrorOnly(this, pkg)
+        }
         if (apps.launch(pkg)) showPage(Page.MIRROR) else showBubble("Couldn't open that app")
+    }
+
+    private fun launchOnCar(intent: Intent): Boolean = try {
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        startActivity(intent, ActivityOptions.makeBasic().setLaunchDisplayId(currentDisplayId()).toBundle())
+        true
+    } catch (e: Exception) {
+        false
+    }
+
+    /** Voice intents (maps, music): car display in direct mode, else phone + mirror. */
+    private fun openIntent(intent: Intent, mirror: Boolean): Boolean {
+        if (Prefs.directMode(this) && launchOnCar(Intent(intent))) return true
+        val ok = apps.startIntent(intent)
+        if (ok && mirror) showPage(Page.MIRROR)
+        return ok
     }
 
     private fun goBack() {
@@ -295,14 +349,14 @@ class CarActivity : AppCompatActivity() {
                 } else {
                     Intent(Intent.ACTION_VIEW, Uri.parse("geo:0,0?q=" + Uri.encode(cmd.destination)))
                 }
-                if (apps.startIntent(intent)) showPage(Page.MIRROR) else showBubble("No maps app found")
+                if (!openIntent(intent, mirror = true)) showBubble("No maps app found")
             }
             is VoiceCommand.Play -> {
                 showBubble("Playing ${cmd.query}")
                 val intent = Intent(MediaStore.INTENT_ACTION_MEDIA_PLAY_FROM_SEARCH)
                     .putExtra(SearchManager.QUERY, cmd.query)
                     .putExtra(MediaStore.EXTRA_MEDIA_FOCUS, "vnd.android.cursor.item/*")
-                if (!apps.startIntent(intent)) showBubble("No music app can play that")
+                if (!openIntent(intent, mirror = false)) showBubble("No music app can play that")
             }
             VoiceCommand.Home -> { hideBubbleSoon(0); showPage(Page.HOME) }
             VoiceCommand.Apps -> { hideBubbleSoon(0); showPage(Page.APPS) }

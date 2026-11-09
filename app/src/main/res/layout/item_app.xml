@@ -1,20 +1,20 @@
 <?xml version="1.0" encoding="utf-8"?>
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:layout_width="120dp"
+    android:layout_width="104dp"
     android:layout_height="wrap_content"
-    android:layout_margin="6dp"
+    android:layout_margin="5dp"
     android:background="@drawable/tile_bg"
     android:clickable="true"
     android:focusable="true"
-    android:gravity="center_horizontal"
+    android:gravity="center"
     android:orientation="vertical"
-    android:paddingTop="16dp"
+    android:paddingTop="14dp"
     android:paddingBottom="12dp">
 
     <ImageView
         android:id="@+id/appIcon"
-        android:layout_width="60dp"
-        android:layout_height="60dp"
+        android:layout_width="52dp"
+        android:layout_height="52dp"
         android:importantForAccessibility="no" />
 
     <TextView
@@ -23,10 +23,11 @@
         android:layout_height="wrap_content"
         android:layout_marginTop="8dp"
         android:ellipsize="end"
+        android:fontFamily="sans-serif-medium"
         android:gravity="center"
         android:maxLines="1"
-        android:paddingStart="6dp"
-        android:paddingEnd="6dp"
+        android:paddingStart="8dp"
+        android:paddingEnd="8dp"
         android:textColor="@color/car_text"
-        android:textSize="15sp" />
+        android:textSize="13sp" />
 </LinearLayout>

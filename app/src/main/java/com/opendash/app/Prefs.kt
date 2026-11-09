@@ -14,6 +14,16 @@ object Prefs {
     fun blockVideo(c: Context) = sp(c).getBoolean("block_video", true)
     fun setBlockVideo(c: Context, v: Boolean) = sp(c).edit().putBoolean("block_video", v).apply()
 
+    /** Open apps on the car display instead of mirroring the phone. */
+    fun directMode(c: Context) = sp(c).getBoolean("direct", true)
+    fun setDirectMode(c: Context, v: Boolean) = sp(c).edit().putBoolean("direct", v).apply()
+
+    /** Apps that Android Auto refused to run directly; these always mirror. */
+    fun mirrorOnly(c: Context): Set<String> = sp(c).getStringSet("mirror_only", emptySet())!!
+    fun addMirrorOnly(c: Context, pkg: String) =
+        sp(c).edit().putStringSet("mirror_only", mirrorOnly(c) + pkg).apply()
+    fun clearMirrorOnly(c: Context) = sp(c).edit().remove("mirror_only").apply()
+
     fun recents(c: Context): List<String> =
         sp(c).getString("recents", "")!!.split(',').filter { it.isNotBlank() }
 
